@@ -917,6 +917,15 @@ exports.handler = async (event) => {
       adDateFilter = `AND properties.date >= '${effectiveStart}'`;
     }
 
+    // Kick off GHL + catalog fetches in parallel with the PostHog queries.
+    // Previously these ran sequentially after PostHog (~10s GHL + ~10s PostHog
+    // = 20-25s cold-start, hitting Netlify's 30s timeout). Now max(GHL, PH)
+    // dominates → expected cold-start ~12-15s.
+    const ghlRowsPromise = fetchGhlOppsWithContacts(effectiveStart, effectiveEnd)
+      .catch(e => { console.log('[Dashboard] GHL fetch failed:', e.message); return null; });
+    const metaCatalogPromise = fetchMetaAdCatalog().catch(() => null);
+    const googleCatalogPromise = fetchGoogleAdsCatalog().catch(() => null);
+
     const [
       kpiPageviews,
       kpiStarted,
@@ -1534,7 +1543,7 @@ exports.handler = async (event) => {
     // GHL-backed sections (source of truth for sexo, pipeline, payment tags).
     // Fetched once, used to derive both by_sexo and the master funnel table.
     try {
-      const ghlRows = await fetchGhlOppsWithContacts(effectiveStart, effectiveEnd);
+      const ghlRows = await ghlRowsPromise;
       if (ghlRows) {
         // by_sexo — leads/booked/paid from GHL (operational truth) + visits
         // from PostHog (only place we have $pageview by person.properties.sexo).
@@ -1597,10 +1606,8 @@ exports.handler = async (event) => {
         // Master funnel — one row per unique 9-dim combination, enriched
         // with upstream counts from the PostHog slice + Meta catalog so
         // utm_content → ad_id/adset_name/campaign_name reflect real Meta.
-        const [metaCatalog, googleCatalog] = await Promise.all([
-          fetchMetaAdCatalog(),
-          fetchGoogleAdsCatalog(),
-        ]);
+        // Catalogs were kicked off in parallel at the top of the handler.
+        const [metaCatalog, googleCatalog] = await Promise.all([metaCatalogPromise, googleCatalogPromise]);
         result.by_master_funnel = buildMasterFunnelFromGhl(ghlRows, result.by_funnel_dimensions, metaCatalog, googleCatalog);
         result.meta_ads_catalog_size = metaCatalog?.count || 0;
         result.google_ads_catalog_size = googleCatalog?.count || 0;
