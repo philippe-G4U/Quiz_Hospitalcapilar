@@ -245,6 +245,39 @@
   </div>
 </div>
 
+<div class="grid">
+  <div class="card full-width">
+    <div class="card-header">
+      <h3>Tabla maestra completa</h3>
+      <span class="type">Pago + No-Pago consolidado, filtrable, exportable</span>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
+        <input id="mfSearch" placeholder="Buscar campaña, ad, video..." style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;flex:1;min-width:220px;" />
+        <select id="mfCamino" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          <option value="">Camino: Todos</option>
+          <option value="pago">Pago</option>
+          <option value="no_pago">No-Pago</option>
+        </select>
+        <select id="mfChannel" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          <option value="">Canal: Todos</option>
+        </select>
+        <select id="mfLanding" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          <option value="">Landing: Todos</option>
+        </select>
+        <select id="mfSexo" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          <option value="">Sexo: Todos</option>
+        </select>
+        <button id="mfCsv" style="padding:6px 12px;background:#4CA994;color:white;border:0;border-radius:6px;font-size:13px;cursor:pointer;">Descargar CSV</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="masterFullTable" style="font-size:12px;white-space:nowrap;width:100%;"></table>
+      </div>
+      <div id="mfTotals" style="margin-top:8px;font-size:12px;color:#555;"></div>
+    </div>
+  </div>
+</div>
+
 <div class="dashboard-footer">
   Hospital Capilar &mdash; Analytics Dashboard &mdash; Datos en vivo de PostHog
 </div>
@@ -471,6 +504,168 @@ function renderCamino(data) {
   // Pass a predicate so the tree filter can use both door and sexo.
   renderCaminoTree(data, (r) => isPagoPath(r),  'caminoPagoTable',   true);
   renderCaminoTree(data, (r) => !isPagoPath(r), 'caminoNoPagoTable', false);
+  renderMasterFullTable(data);
+}
+
+// ─── Tabla maestra consolidada (Pago + No-Pago en una vista) ───
+let _masterFullState = { sortCol: 'leads', sortDir: 'desc', data: null };
+
+function renderMasterFullTable(data) {
+  const rows = (data.by_master_funnel || []).map(r => ({
+    ...r,
+    camino: isPagoPath(r) ? 'pago' : 'no_pago',
+  }));
+  _masterFullState.data = rows;
+
+  // Populate filter dropdowns
+  const fillSelect = (id, values, current) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const first = el.options[0]; // keep "Todos"
+    el.innerHTML = '';
+    el.appendChild(first);
+    values.sort().forEach(v => {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = v;
+      if (v === current) o.selected = true;
+      el.appendChild(o);
+    });
+  };
+  fillSelect('mfChannel', [...new Set(rows.map(r => r.channel || 'Sin dato'))], document.getElementById('mfChannel')?.value);
+  fillSelect('mfLanding', [...new Set(rows.map(r => r.landing || 'sin-dato'))], document.getElementById('mfLanding')?.value);
+  fillSelect('mfSexo',    [...new Set(rows.map(r => r.sexo    || 'sin-dato'))], document.getElementById('mfSexo')?.value);
+
+  // Wire filters once
+  if (!_masterFullState.wired) {
+    _masterFullState.wired = true;
+    ['mfSearch','mfCamino','mfChannel','mfLanding','mfSexo'].forEach(id => {
+      document.getElementById(id)?.addEventListener('input', () => paintMasterFullTable());
+      document.getElementById(id)?.addEventListener('change', () => paintMasterFullTable());
+    });
+    document.getElementById('mfCsv')?.addEventListener('click', downloadMasterFullCsv);
+  }
+  paintMasterFullTable();
+}
+
+function paintMasterFullTable() {
+  const rows = _masterFullState.data || [];
+  const q = (document.getElementById('mfSearch')?.value || '').toLowerCase().trim();
+  const fc = document.getElementById('mfCamino')?.value || '';
+  const fch = document.getElementById('mfChannel')?.value || '';
+  const fl = document.getElementById('mfLanding')?.value || '';
+  const fs = document.getElementById('mfSexo')?.value || '';
+
+  let filtered = rows.filter(r => {
+    if (fc && r.camino !== fc) return false;
+    if (fch && (r.channel || 'Sin dato') !== fch) return false;
+    if (fl && (r.landing || 'sin-dato') !== fl) return false;
+    if (fs && (r.sexo || 'sin-dato') !== fs) return false;
+    if (q) {
+      const hay = [r.utm_campaign, r.utm_medium, r.ad_display, r.video_label, r.utm_content].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const { sortCol, sortDir } = _masterFullState;
+  filtered.sort((a, b) => {
+    const va = a[sortCol], vb = b[sortCol];
+    if (typeof va === 'number') return sortDir === 'asc' ? va - vb : vb - va;
+    return sortDir === 'asc' ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  });
+
+  const cols = [
+    { key: 'camino',       label: 'Camino',   align: 'left'  },
+    { key: 'channel',      label: 'Canal',    align: 'left'  },
+    { key: 'utm_campaign', label: 'Campaña',  align: 'left'  },
+    { key: 'utm_medium',   label: 'AdSet',    align: 'left'  },
+    { key: 'ad_display',   label: 'Anuncio',  align: 'left'  },
+    { key: 'video_label',  label: 'Video',    align: 'left'  },
+    { key: 'landing',      label: 'Landing',  align: 'left'  },
+    { key: 'sexo',         label: 'Sexo',     align: 'left'  },
+    { key: 'visits',       label: 'Visitas',  align: 'right' },
+    { key: 'started',      label: 'Iniciados',align: 'right' },
+    { key: 'leads',        label: 'Leads',    align: 'right' },
+    { key: 'paid',         label: 'Pago',     align: 'right' },
+    { key: 'booked',       label: 'Citas',    align: 'right' },
+    { key: 'atendida',     label: 'Atend.',   align: 'right' },
+    { key: 'no_show',      label: 'No-show',  align: 'right' },
+    { key: 'cancelada',    label: 'Cancel.',  align: 'right' },
+  ];
+
+  let html = '<thead><tr>';
+  cols.forEach(c => {
+    const arrow = sortCol === c.key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+    const cls = c.align === 'right' ? 'class="num"' : '';
+    html += `<th ${cls} style="cursor:pointer;user-select:none;" data-col="${c.key}">${c.label}${arrow}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  filtered.forEach(r => {
+    html += '<tr>';
+    cols.forEach(c => {
+      const v = r[c.key];
+      const cls = c.align === 'right' ? 'class="num"' : '';
+      if (c.key === 'camino') {
+        const color = v === 'pago' ? '#4CA994' : '#f59e0b';
+        html += `<td><span style="color:${color};font-weight:600;">${v === 'pago' ? 'Pago' : 'No-Pago'}</span></td>`;
+      } else if (typeof v === 'number') {
+        html += `<td ${cls}>${v > 0 ? v.toLocaleString() : '<span style="color:#999;">0</span>'}</td>`;
+      } else {
+        html += `<td ${cls}>${escapeHtml(v || '—')}</td>`;
+      }
+    });
+    html += '</tr>';
+  });
+  html += '</tbody>';
+
+  const tbl = document.getElementById('masterFullTable');
+  if (tbl) {
+    tbl.innerHTML = html;
+    tbl.querySelectorAll('th[data-col]').forEach(th => {
+      th.addEventListener('click', () => {
+        const c = th.getAttribute('data-col');
+        if (_masterFullState.sortCol === c) _masterFullState.sortDir = _masterFullState.sortDir === 'asc' ? 'desc' : 'asc';
+        else { _masterFullState.sortCol = c; _masterFullState.sortDir = 'desc'; }
+        paintMasterFullTable();
+      });
+    });
+  }
+
+  // Totals
+  const totals = filtered.reduce((acc, r) => {
+    ['visits','started','leads','paid','booked','atendida','no_show','cancelada'].forEach(k => acc[k] = (acc[k]||0) + (r[k]||0));
+    return acc;
+  }, {});
+  const tot = document.getElementById('mfTotals');
+  if (tot) {
+    tot.innerHTML = `<strong>${filtered.length} filas</strong> &middot; Visitas: ${totals.visits||0} &middot; Iniciados: ${totals.started||0} &middot; Leads: ${totals.leads||0} &middot; Pago: ${totals.paid||0} &middot; Citas: ${totals.booked||0} &middot; Atendidas: ${totals.atendida||0}`;
+  }
+}
+
+function downloadMasterFullCsv() {
+  const rows = _masterFullState.data || [];
+  const cols = ['camino','channel','utm_campaign','utm_medium','ad_display','ad_kind','video_label','landing','sexo','pago','visits','started','completed','leads','paid','booked','agendada','atendida','no_show','cancelada','utm_content'];
+  const csv = [cols.join(',')];
+  rows.forEach(r => {
+    csv.push(cols.map(c => {
+      const v = r[c];
+      if (v == null) return '';
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    }).join(','));
+  });
+  const blob = new Blob([csv.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `master-funnel-${(new Date()).toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 function isPagoPath(r) {
