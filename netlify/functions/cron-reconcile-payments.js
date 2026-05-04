@@ -19,7 +19,6 @@ const { getFirestore } = require('./lib/firebase-admin');
 
 const STRIPE_API = 'https://api.stripe.com/v1';
 const GHL_BASE = 'https://services.leadconnectorhq.com';
-const KOIBOX_BASE = 'https://api.koibox.cloud/api';
 const ALERTS_COLLECTION = 'reconcile_alerts';
 
 const OPP_CF = {
@@ -138,79 +137,79 @@ async function runCheckB(stripeKey, ghlKey, now) {
 }
 
 /**
- * Check C: every Koibox appointment created in the last 4h that has an opp.koibox_id
- * link (via GHL) must have a matching GHL calendar event. If not, create it (self-heal)
- * and alert if the heal fails. This catches the same class of failure that hit Roser
- * even if the synchronous retry in koibox-proxy also fails.
+ * Check C: every quiz-driven booking from the last 4h must have a matching
+ * GHL calendar event. Self-heals if missing, alerts if heal also fails.
+ *
+ * We iterate Firestore `quiz_leads` (not Koibox) because (a) Koibox API has no
+ * created-date filter and pages over staff-managed appts, (b) we only care about
+ * quiz/paywall bookings here — staff bookings legitimately don't go to GHL.
  */
 async function runCheckC(ghlKey) {
-  const koiboxKey = process.env.KOIBOX_API_KEY;
   const result = { scanned: 0, healed: 0, alerts: 0, ok: 0, errors: 0 };
-  if (!koiboxKey) { console.log('[Reconcile C] no KOIBOX_API_KEY'); return result; }
+  const db = getFirestore();
+  if (!db) { console.log('[Reconcile C] no Firestore — skipping'); return result; }
 
-  // Pull recent Koibox appointments by created date (we paginate up to 200 in
-  // the future-only window — most missing-cal-event cases are within hours of
-  // booking).
-  const today = new Date().toISOString().slice(0, 10);
-  const future = new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 10);
-  const sinceCreated = new Date(Date.now() - 4 * 3600_000).toISOString();
-  const koiboxHeaders = { 'X-Koibox-Key': koiboxKey };
+  // Window: 5 min ago (let synchronous flow finish) → 4h ago.
+  const upper = new Date(Date.now() - 5 * 60_000).toISOString();
+  const lower = new Date(Date.now() - 4 * 3600_000).toISOString();
 
-  const candidates = [];
-  for (let offset = 0; offset < 200; offset += 50) {
-    const url = `${KOIBOX_BASE}/agenda/?fecha__gte=${today}&fecha__lte=${future}&limit=50&offset=${offset}`;
-    const r = await fetch(url, { headers: koiboxHeaders }).catch(() => null);
-    if (!r || !r.ok) break;
-    const data = await r.json().catch(() => ({}));
-    const items = data.results || [];
-    if (!items.length) break;
-    for (const a of items) {
-      if ((a.created || '') >= sinceCreated) candidates.push(a);
-    }
-    if (!data.next) break;
+  let docs;
+  try {
+    const snap = await db.collection('quiz_leads')
+      .where('appointmentBookedAt', '>=', lower)
+      .where('appointmentBookedAt', '<=', upper)
+      .get();
+    docs = snap.docs;
+  } catch (err) {
+    console.log('[Reconcile C] firestore query failed:', err.message);
+    return result;
   }
-  result.scanned = candidates.length;
+  result.scanned = docs.length;
 
-  for (const appt of candidates) {
-    const dedupKey = `cal_event_${appt.id}`;
+  for (const doc of docs) {
+    const lead = doc.data();
+    const email = (lead.email || '').toLowerCase();
+    const koiboxId = lead.appointmentKoiboxId || '';
+    const fecha = lead.appointmentFecha || '';
+    const hora = lead.appointmentHora || '';
+    if (!email || !fecha || !hora) { result.errors++; continue; }
+
+    const dedupKey = `cal_event_${koiboxId || `${email}_${fecha}_${hora}`}`;
     if (await alreadyAlerted(dedupKey)) { result.ok++; continue; }
 
     try {
-      const email = (appt.cliente?.email || '').toLowerCase();
-      if (!email) { result.errors++; continue; }
       const contactId = await findContactIdByEmail(email, ghlKey);
-      if (!contactId) { result.errors++; continue; }
-
-      const has = await hasMatchingGHLCalendarEvent(contactId, appt, ghlKey);
+      if (!contactId) {
+        // Check A would have alerted on this — skip silently here.
+        result.errors++;
+        continue;
+      }
+      const apptShape = { fecha, hora_inicio: hora, cliente: { text: lead.nombre || '' } };
+      const has = await hasMatchingGHLCalendarEvent(contactId, apptShape, ghlKey);
       if (has) { result.ok++; continue; }
 
-      // Self-heal: create the missing event
-      const created = await createGHLCalendarEvent(contactId, appt, ghlKey);
+      // Self-heal
+      const created = await createGHLCalendarEvent(contactId, apptShape, ghlKey);
       if (created.ok) {
-        console.log('[Reconcile C] Self-healed cal event for koibox', appt.id, '→ ghl', created.id);
+        console.log('[Reconcile C] Self-healed cal event for lead', email, koiboxId, '→ ghl', created.id);
         result.healed++;
-        await markAlerted(dedupKey, { check: 'C_healed', koiboxId: appt.id, ghlEventId: created.id });
+        await markAlerted(dedupKey, { check: 'C_healed', koiboxId, ghlEventId: created.id, email });
+        await sendAlert(
+          'reconcile-payments',
+          `Self-healed missing GHL calendar event for ${email} (${fecha} ${hora})`,
+          { severity: 'info', check: 'C_calendar_event_healed', koibox_id: koiboxId, contact_id: contactId, email, fecha, hora, ghl_event_id: created.id }
+        );
       } else {
         await sendAlert(
           'reconcile-payments',
-          `GHL calendar event missing AND self-heal failed for Koibox ${appt.id} (${appt.fecha} ${appt.hora_inicio})`,
-          {
-            severity: 'critical',
-            check: 'C_calendar_event',
-            koibox_id: appt.id,
-            email,
-            contact_id: contactId,
-            fecha: appt.fecha,
-            hora_inicio: appt.hora_inicio,
-            heal_status: created.status,
-            heal_error: created.error,
-          }
+          `GHL calendar event missing AND self-heal failed for ${email} (${fecha} ${hora})`,
+          { severity: 'critical', check: 'C_calendar_event', koibox_id: koiboxId, contact_id: contactId, email, fecha, hora, heal_status: created.status, heal_error: created.error }
         );
-        await markAlerted(dedupKey, { check: 'C_failed', koiboxId: appt.id });
+        await markAlerted(dedupKey, { check: 'C_failed', koiboxId, email });
         result.alerts++;
       }
     } catch (err) {
-      console.log('[Reconcile C] error on appt', appt.id, err.message);
+      console.log('[Reconcile C] error on lead', email, err.message);
       result.errors++;
     }
   }
@@ -229,17 +228,12 @@ async function hasMatchingGHLCalendarEvent(contactId, appt, ghlKey) {
   const data = await res.json();
   const events = data.events || data.appointments || [];
   if (!events.length) return false;
-  // Match by date+time. Koibox `fecha` = YYYY-MM-DD, `hora_inicio` = HH:MM
-  const target = `${appt.fecha}T${appt.hora_inicio}`;
-  return events.some(e => {
-    const start = (e.startTime || '').slice(0, 16); // YYYY-MM-DDTHH:MM
-    return start === target || start.startsWith(appt.fecha);
-  });
+  // Loose match: any event for this contact whose startTime falls on the same date.
+  return events.some(e => (e.startTime || '').startsWith(appt.fecha));
 }
 
 async function createGHLCalendarEvent(contactId, appt, ghlKey) {
   try {
-    // Build ISO with Madrid offset, mirroring koibox-proxy's logic
     const probe = new Date(`${appt.fecha}T${appt.hora_inicio}:00Z`);
     const madridStr = probe.toLocaleString('en-US', { timeZone: 'Europe/Madrid' });
     const madridDate = new Date(madridStr + ' UTC');
@@ -265,11 +259,7 @@ async function createGHLCalendarEvent(contactId, appt, ghlKey) {
     };
     const res = await fetch(`${GHL_BASE}/calendars/events/appointments`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${ghlKey}`,
-        'Content-Type': 'application/json',
-        Version: '2021-07-28',
-      },
+      headers: { Authorization: `Bearer ${ghlKey}`, 'Content-Type': 'application/json', Version: '2021-07-28' },
       body: JSON.stringify(payload),
     });
     const data = await res.json().catch(() => ({}));
