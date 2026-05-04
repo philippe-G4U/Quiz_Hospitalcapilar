@@ -17,27 +17,28 @@ function getPageIds() {
   return ids;
 }
 
-async function fetchPagesFromAccount() {
-  // Fallback when META_PAGE_IDS not set — list pages the token can access.
+// Returns array of { id, access_token } — Page Access Tokens are different
+// from the User/System-User token and required by /leadgen_forms endpoints.
+async function fetchPageTokensFromAccount() {
   const token = process.env.META_ACCESS_TOKEN;
   if (!token) return [];
-  const r = await fetch(`${META_GRAPH}/me/accounts?fields=id,name&access_token=${token}`);
+  const r = await fetch(`${META_GRAPH}/me/accounts?fields=id,name,access_token&access_token=${token}`);
   if (!r.ok) return [];
   const d = await r.json();
-  return (d.data || []).map(p => p.id);
+  return (d.data || [])
+    .filter(p => p.access_token)
+    .map(p => ({ id: p.id, name: p.name, access_token: p.access_token }));
 }
 
-async function listLeadFormsForPage(pageId) {
-  const token = process.env.META_ACCESS_TOKEN;
-  const url = `${META_GRAPH}/${pageId}/leadgen_forms?fields=id,name,status,created_time&limit=100&access_token=${token}`;
+async function listLeadFormsForPage(pageId, pageToken) {
+  const url = `${META_GRAPH}/${pageId}/leadgen_forms?fields=id,name,status,created_time&limit=100&access_token=${pageToken}`;
   const r = await fetch(url);
   if (!r.ok) return { error: `${r.status}: ${(await r.text()).slice(0, 200)}`, forms: [] };
   const d = await r.json();
   return { forms: d.data || [] };
 }
 
-async function fetchLeadsForForm(formId, sinceUnix) {
-  const token = process.env.META_ACCESS_TOKEN;
+async function fetchLeadsForForm(formId, sinceUnix, pageToken) {
   const fields = [
     'id', 'created_time', 'form_id',
     'campaign_id', 'campaign_name',
@@ -47,7 +48,7 @@ async function fetchLeadsForForm(formId, sinceUnix) {
     'platform',
   ].join(',');
   const filter = sinceUnix ? `&filtering=[{"field":"time_created","operator":"GREATER_THAN","value":${sinceUnix}}]` : '';
-  const url = `${META_GRAPH}/${formId}/leads?fields=${fields}${filter}&limit=100&access_token=${token}`;
+  const url = `${META_GRAPH}/${formId}/leads?fields=${fields}${filter}&limit=100&access_token=${pageToken}`;
   const all = [];
   let next = url;
   let guard = 0;
@@ -81,24 +82,22 @@ function extractContactFields(lead) {
 }
 
 // Main entry point: pulls all recent Meta leads with attribution data
-// across all known pages/forms. Returns flattened list of lead records.
+// across all pages/forms the System User has Page-token access to.
+// Returns flattened list of lead records.
 async function fetchRecentMetaLeads(lookbackHours = 24) {
   const sinceUnix = Math.floor((Date.now() - lookbackHours * 3600 * 1000) / 1000);
-  let pageIds = getPageIds();
-  if (pageIds.length === 0) {
-    pageIds = await fetchPagesFromAccount();
-  }
-  if (pageIds.length === 0) {
-    return { error: 'No pages found. Set META_PAGE_IDS env var or grant pages_show_list to token.', leads: [] };
+  const pages = await fetchPageTokensFromAccount();
+  if (pages.length === 0) {
+    return { error: 'No pages with access_token found. Token needs pages_show_list + Page Manage permissions.', leads: [] };
   }
 
   const allLeads = [];
   const errors = [];
-  for (const pageId of pageIds) {
-    const { forms, error } = await listLeadFormsForPage(pageId);
-    if (error) { errors.push(`page ${pageId}: ${error}`); continue; }
+  for (const page of pages) {
+    const { forms, error } = await listLeadFormsForPage(page.id, page.access_token);
+    if (error) { errors.push(`page ${page.id} (${page.name}): ${error}`); continue; }
     for (const form of forms) {
-      const leads = await fetchLeadsForForm(form.id, sinceUnix);
+      const leads = await fetchLeadsForForm(form.id, sinceUnix, page.access_token);
       for (const lead of leads) {
         const contact = extractContactFields(lead);
         allLeads.push({
@@ -117,7 +116,7 @@ async function fetchRecentMetaLeads(lookbackHours = 24) {
           ad_id:          lead.ad_id,
           ad_name:        lead.ad_name,
           platform:       lead.platform || '',
-          page_id:        pageId,
+          page_id:        page.id,
         });
       }
     }
