@@ -68,11 +68,33 @@ export const SolutionSection = ({ solution }) => (
   </section>
 );
 
-export const TestimonialsSection = ({ testimonials }) => (
+export const TestimonialsSection = ({ testimonials, videoTestimonial }) => (
   <section className="max-w-4xl mx-auto px-6 py-16">
     <h2 className="text-2xl md:text-3xl font-extrabold text-gray-900 mb-8 text-center">
       Personas como tú que dieron el paso
     </h2>
+    {videoTestimonial && (
+      <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 max-w-md mx-auto mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="font-bold text-sm text-gray-900">{videoTestimonial.name}</span>
+          <span className="text-gray-400 text-xs">{videoTestimonial.label}</span>
+          <div className="flex gap-0.5 ml-auto">
+            {Array.from({ length: 5 }).map((_, j) => (
+              <Star key={j} size={14} className="text-yellow-400 fill-yellow-400" />
+            ))}
+          </div>
+        </div>
+        <div className="rounded-xl overflow-hidden bg-black aspect-[9/16] max-h-[340px] mx-auto" style={{ maxWidth: '190px' }}>
+          <video
+            src={videoTestimonial.src}
+            controls
+            playsInline
+            preload="metadata"
+            className="w-full h-full object-cover"
+          />
+        </div>
+      </div>
+    )}
     <div className="grid md:grid-cols-2 gap-6">
       {testimonials.map((t, i) => (
         <div key={i} className="bg-gray-50 p-6 rounded-2xl border border-gray-100">

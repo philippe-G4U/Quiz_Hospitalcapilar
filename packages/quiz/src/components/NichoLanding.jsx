@@ -58,7 +58,7 @@ const NichoLanding = ({ nicho, onStartQuiz }) => {
       <PainPointsSection painPoints={config.painPoints} />
       <SolutionSection solution={config.solution} />
       <ClinicGallerySection />
-      <TestimonialsSection testimonials={config.testimonials} />
+      <TestimonialsSection testimonials={config.testimonials} videoTestimonial={config.videoTestimonial} />
       <CEOSection />
       <FAQSection faqs={config.faqs} />
 

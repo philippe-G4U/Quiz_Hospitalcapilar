@@ -556,10 +556,16 @@ const HospitalCapilarQuiz = ({ nicho = null, skipIntro = false }) => {
         }
         const testimonials = TESTIMONIALS_BY_ECP[ecpKey] || TESTIMONIALS_BY_ECP['Es Normal'];
         const t = testimonials[0];
+        const isMujer = ans.sexo === 'mujer';
         return {
           icon: 'star',
-          headline: 'Alguien como tú ya dio el paso',
-          testimonial: t,
+          headline: 'Personas como tú que dieron el paso',
+          testimonial: isMujer ? null : t,
+          videoTestimonial: isMujer ? {
+            src: 'https://res.cloudinary.com/dsc0jsbkz/video/upload/v1777898178/YOLANDA_TESTIMONIO_rv2tei.mp4',
+            name: 'Yolanda',
+            label: 'Paciente Hospital Capilar',
+          } : null,
           cta: 'Ya casi termino',
         };
       },
@@ -1880,6 +1886,30 @@ const HospitalCapilarQuiz = ({ nicho = null, skipIntro = false }) => {
                   </div>
                   <p className="text-gray-700 leading-relaxed italic text-[15px] mb-3">"{info.testimonial.text}"</p>
                   <p className="text-sm font-bold text-gray-900">{info.testimonial.name}, {info.testimonial.age} años</p>
+                </div>
+              )}
+
+              {/* Video testimonial — for mujeres */}
+              {info.videoTestimonial && (
+                <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 w-full max-w-md mb-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="font-bold text-sm text-gray-900">{info.videoTestimonial.name}</span>
+                    <span className="text-gray-400 text-xs">{info.videoTestimonial.label}</span>
+                    <div className="flex gap-0.5 ml-auto">
+                      {Array.from({ length: 5 }).map((_, j) => (
+                        <Star key={j} size={14} className="text-yellow-400 fill-yellow-400" />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-xl overflow-hidden bg-black aspect-[9/16] max-h-[300px] mx-auto" style={{ maxWidth: '170px' }}>
+                    <video
+                      src={info.videoTestimonial.src}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
                 </div>
               )}
 

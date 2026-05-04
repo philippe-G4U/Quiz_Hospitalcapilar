@@ -3,6 +3,12 @@
 // Used by both NichoLanding (quiz) and DirectFormLanding (form)
 // ============================================
 
+const YOLANDA_VIDEO_TESTIMONIAL = {
+  src: 'https://res.cloudinary.com/dsc0jsbkz/video/upload/v1777898178/YOLANDA_TESTIMONIO_rv2tei.mp4',
+  name: 'Yolanda',
+  label: 'Paciente Hospital Capilar',
+};
+
 export const NICHOS = {
   // ─── El Espejo — Joven 20-28 ──────────────────────────────
   'el-espejo': {
@@ -64,6 +70,7 @@ export const NICHOS = {
       { name: 'Laura M.', age: 52, text: 'Desde la menopausia se me caía a puñados. Mi médica decía que era normal. En Hospital Capilar cruzaron mi perfil hormonal con tricoscopía y encontraron la causa real.', stars: 5 },
       { name: 'Patricia G.', age: 48, text: 'Llevaba un año con caída brutal. Me dijeron que era por la edad. En HC descubrieron un desbalance hormonal tratable. Por fin alguien me escuchó.', stars: 5 },
     ],
+    videoTestimonial: YOLANDA_VIDEO_TESTIMONIAL,
     solution: 'Tu pelo y tus hormonas están conectados — y nuestro equipo los analiza juntos. Cruzamos tu perfil hormonal (menopausia, SOP, Hashimoto) con un estudio capilar completo.',
     faqs: [
       { q: '¿Es normal que se me caiga el pelo en la menopausia?', a: 'Es frecuente, pero NO es "normal" y no tienes que aceptarlo. Un test capilar con analítica hormonal + tricoscopía identifica la causa exacta y las opciones de tratamiento.' },
@@ -99,6 +106,7 @@ export const NICHOS = {
       { name: 'Elena R.', age: 32, text: 'Después del parto se me caía a puñados. 8 meses después seguía igual. En HC descubrieron que tenía AGA subyacente. Gracias a actuar a tiempo estoy recuperando densidad.', stars: 5 },
       { name: 'Sofía T.', age: 29, text: 'Creía que nunca iba a volver a tener mi pelo de antes. El test en HC me tranquilizó: era efluvio temporal. Me dieron un plan y en 4 meses estaba como antes.', stars: 5 },
     ],
+    videoTestimonial: YOLANDA_VIDEO_TESTIMONIAL,
     solution: 'Cruzamos tu perfil hormonal postparto con un estudio capilar completo. Si es efluvio temporal, te lo decimos. Si hay una alopecia subyacente, actuamos a tiempo.',
     faqs: [
       { q: '¿Es normal perder pelo después del parto?', a: 'Sí, el efluvio postparto es muy común. Pero si la caída persiste más de 6 meses, puede haber una alopecia subyacente que necesita tratamiento.' },
@@ -240,6 +248,7 @@ export const NICHOS = {
       { name: 'Elena R.', age: 32, text: 'Después del parto se me caía a puñados. 8 meses después seguía igual. En HC descubrieron AGA subyacente. Gracias a actuar a tiempo estoy recuperando densidad.', stars: 5 },
       { name: 'Patricia G.', age: 48, text: 'Llevaba un año con caída brutal. Me dijeron que era por la edad. En HC descubrieron un desbalance hormonal tratable. Por fin alguien me escuchó.', stars: 5 },
     ],
+    videoTestimonial: YOLANDA_VIDEO_TESTIMONIAL,
     solution: 'El Protocolo Mujer es tricoscopía digital + analítica hormonal completa + valoración con médica especialista. Todo en el mismo día. Un informe con la causa real y tu plan. Si no necesitas tratamiento, te lo decimos.',
     faqs: [
       { q: '¿En qué se diferencia el Protocolo Mujer de una consulta capilar normal?', a: 'La mayoría de clínicas capilares se centran en hombres. El Protocolo Mujer está diseñado para identificar las causas específicamente femeninas: menopausia, postparto, SOP, tiroides, anemia ferropénica, estrés. Cruzamos tu analítica hormonal con el estudio capilar — nadie más los mira juntos.' },
