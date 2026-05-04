@@ -461,14 +461,32 @@ async function fetchGhlOppsWithContacts(startDate, endDate) {
   const inRange = [...oppByContact.values()];
   const contactIds = [...oppByContact.keys()];
   const contactById = {};
-  // Concurrency 8 + 3-attempt retry on 429/5xx. With ~100 contacts and
-  // ~250ms per call we need higher concurrency to stay under Netlify's
-  // 30s hard timeout. GHL rate limit is ~50 req/s so 8 parallel is safe.
-  // Per-request 4s timeout + retry handles slow tails.
+  // Module-level contact cache — survives across warm invocations of the
+  // function. With Netlify's edge cache TTL of 5 min, the cache hits ~all
+  // contacts on the second invocation, making warm cold-starts nearly
+  // free. TTL=10min so contacts stay valid even if a contact is updated
+  // (we only need source/door/utm/tags here, which don't change often).
+  if (typeof globalThis._dashContactCache !== 'object') {
+    globalThis._dashContactCache = { byId: new Map(), ttlMs: 10 * 60 * 1000 };
+  }
+  const _ccache = globalThis._dashContactCache;
+  let cacheHits = 0;
+  for (const cid of contactIds) {
+    const entry = _ccache.byId.get(cid);
+    if (entry && (Date.now() - entry.at) < _ccache.ttlMs) {
+      contactById[cid] = entry.contact;
+      cacheHits++;
+    }
+  }
+  const missingIds = contactIds.filter(cid => !contactById[cid]);
+
+  // Concurrency 8 + 3-attempt retry on 429/5xx with 6s per-request timeout.
+  // GHL rate limit is ~50 req/s so 8 parallel is safe. Cache above shrinks
+  // the worker queue dramatically on warm calls.
   const concurrency = 8;
   let idx = 0;
   let lookupFails = 0;
-  async function fetchWithTimeout(url, ms = 4000) {
+  async function fetchWithTimeout(url, ms = 6000) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), ms);
     try {
@@ -486,7 +504,7 @@ async function fetchGhlOppsWithContacts(startDate, endDate) {
           await new Promise(res => setTimeout(res, 400 * (attempt + 1)));
           continue;
         }
-        return null; // 4xx other than 429: don't retry
+        return null;
       } catch (_) {
         await new Promise(res => setTimeout(res, 400 * (attempt + 1)));
       }
@@ -494,16 +512,20 @@ async function fetchGhlOppsWithContacts(startDate, endDate) {
     return null;
   }
   async function worker() {
-    while (idx < contactIds.length) {
+    while (idx < missingIds.length) {
       const i = idx++;
-      const cid = contactIds[i];
+      const cid = missingIds[i];
       const contact = await fetchContactWithRetry(cid);
-      if (contact) contactById[cid] = contact;
-      else lookupFails++;
+      if (contact) {
+        contactById[cid] = contact;
+        _ccache.byId.set(cid, { contact, at: Date.now() });
+      } else {
+        lookupFails++;
+      }
     }
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, contactIds.length) }, worker));
-  if (lookupFails > 0) console.log('[dashboard-data] contact lookup failures:', lookupFails, 'of', contactIds.length);
+  await Promise.all(Array.from({ length: Math.min(concurrency, missingIds.length) }, worker));
+  console.log(`[dashboard-data] contacts: ${cacheHits} cached, ${missingIds.length - lookupFails} fetched, ${lookupFails} failed of ${contactIds.length}`);
 
   // Funnel-only filter. We run paid Meta + Google exclusively, so a real
   // lead has at least one of:
