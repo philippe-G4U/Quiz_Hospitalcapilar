@@ -26,7 +26,11 @@ const CONTACT_UTM_CAMPAIGN_CF = '3fUI7GO9o7oZ7ddMNnFf';
 const CONTACT_UTM_CONTENT_CF  = 'dydSaUSYbb5R7nYOboLq';
 const CONTACT_UTM_TERM_CF     = 'eLdhsOthmyD38al527tG';
 
-const LOOKBACK_HOURS = 24;
+// 30 days lookback so the cron can backfill historical contacts that
+// were created before Meta's leads_retrieval permission was granted.
+// Once everything is enriched (after ~1 cron cycle) this could go back
+// to 24h for normal operation, but 30d is safe and idempotent.
+const LOOKBACK_HOURS = 24 * 30;
 
 function buildLink(c) {
   const fullName = [c.firstName, c.lastName].filter(Boolean).join(' ');
@@ -68,10 +72,10 @@ function isOrphanCandidate(c) {
   // Skip if blocked tag present (Instagram comment-spam, etc.)
   const tags = (c.tags || []).map(t => (t || '').toLowerCase());
   if (tags.includes('blocked')) return false;
-  // Skip if link_agendar is already set (idempotency).
-  const cfs = c.customFields || [];
-  const hasLink = !!cfs.find(f => f.id === CONTACT_LINK_AGENDAR_CF)?.value;
-  if (hasLink) return false;
+  // NOTE: we DON'T skip on hasLink anymore — enrichOne returns skipped=true
+  // if both links AND utm_campaign are already set. This way historical
+  // contacts that already got links can still receive UTM enrichment now
+  // that the Meta API token finally has leads_retrieval.
   return true;
 }
 
@@ -198,7 +202,9 @@ exports.handler = async () => {
   let metaByEmail = new Map();
   let metaError = null;
   try {
-    const result = await fetchRecentMetaLeads(48);
+    // Match the GHL contact lookback so all candidates have a chance to
+    // be matched against Meta attribution.
+    const result = await fetchRecentMetaLeads(LOOKBACK_HOURS);
     if (result.errors && result.errors.length) {
       metaError = result.errors.join('; ');
       console.log('[cron-enrich] meta-leads warnings:', metaError);
