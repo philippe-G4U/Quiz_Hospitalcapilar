@@ -1,5 +1,6 @@
 const { updateLeadByEmail, getLeadSourceByEmail, getLeadByEmail } = require('./lib/firebase-admin');
 const { sendMetaEvent } = require('./lib/meta-capi');
+const { sendAlert } = require('./lib/alert');
 
 const KOIBOX_BASE = 'https://api.koibox.cloud/api';
 const GHL_BASE = 'https://services.leadconnectorhq.com';
@@ -1424,6 +1425,11 @@ async function syncAppointmentToGHL({ nombre, email, movil, fecha, hora_inicio, 
 
   // 5b. Create appointment in GHL native calendar (need appointmentId for opportunity)
   const GHL_CALENDAR_ID = 'sMbNt8SyzfjroMbZvB74'; // Calendario HC (producción)
+  // Primary team member configured on that calendar. Without assignedUserId,
+  // GHL rejects the create with 422 (or with 400 "slot not available" if
+  // ignoreFreeSlotValidation is also missing — the slot check uses the
+  // assigned user's availability).
+  const GHL_CALENDAR_ASSIGNED_USER = 'mUXWEKpsLkMbJSVg96Ft';
   let ghlAppointmentId = null;
   try {
     // Build ISO datetime from fecha (YYYY-MM-DD) + hora_inicio (HH:MM)
@@ -1446,12 +1452,17 @@ async function syncAppointmentToGHL({ nombre, email, movil, fecha, hora_inicio, 
       calendarId: GHL_CALENDAR_ID,
       locationId,
       contactId,
+      assignedUserId: GHL_CALENDAR_ASSIGNED_USER,
       startTime: startISO,
       endTime: endISO,
       title: `Diagnóstico Capilar - ${nombre || 'Paciente'}`,
       appointmentStatus: 'confirmed',
       toNotify: true,
       selectedTimezone: 'Europe/Madrid',
+      // We've already validated the slot in Koibox (the source of truth for
+      // staff availability). GHL's slot check uses its own calendar config,
+      // which would reject any time outside its narrow availability window.
+      ignoreFreeSlotValidation: true,
     };
     console.log('[Koibox→GHL] Creating calendar event, payload:', JSON.stringify(calPayload));
 
@@ -1466,6 +1477,22 @@ async function syncAppointmentToGHL({ nombre, email, movil, fecha, hora_inicio, 
       console.log('[Koibox→GHL] Calendar appointment created:', ghlAppointmentId);
     } else {
       console.log('[Koibox→GHL] Calendar appointment failed:', calRes.status, JSON.stringify(calData));
+      // The Koibox booking already succeeded — failing here means the GHL UI's
+      // Appointments tab won't show the cita. Alert so we notice instead of
+      // discovering it via a confused user.
+      sendAlert(
+        'koibox-proxy',
+        `GHL calendar event creation failed for ${nombre || email || 'paciente'} (${fecha} ${hora_inicio})`,
+        {
+          severity: 'warning',
+          contactId,
+          koiboxId,
+          fecha,
+          hora_inicio,
+          ghl_status: calRes.status,
+          ghl_response: typeof calData === 'object' ? JSON.stringify(calData).slice(0, 500) : String(calData).slice(0, 500),
+        }
+      ).catch(() => {});
     }
   } catch (err) {
     console.log('[Koibox→GHL] Calendar appointment error:', err.message);
