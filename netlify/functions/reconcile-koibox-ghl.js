@@ -11,6 +11,10 @@
 const KOIBOX_BASE = 'https://api.koibox.cloud/api';
 const GHL_BASE = 'https://services.leadconnectorhq.com';
 const GHL_LOCATION = process.env.VITE_GHL_LOCATION_ID || 'U4SBRYIlQtGBDHLFwEUf';
+const GHL_CALENDAR_ID = 'sMbNt8SyzfjroMbZvB74'; // Calendario HC (producción)
+// Fallback when no prior assigned user can be reused. ignoreFreeSlotValidation
+// requires an assignedUserId, so we need a real team member id to fall back to.
+const GHL_DEFAULT_ASSIGNED_USER = 'mUXWEKpsLkMbJSVg96Ft';
 
 const OUR_SERVICES = new Set([103385, 103373]); // diagnóstico, asesoría
 const WINDOW_DAYS = 5;
@@ -125,6 +129,108 @@ async function addNote(contactId, body, headers) {
   });
 }
 
+async function listGhlAppointments(contactId, headers) {
+  const r = await fetch(`${GHL_BASE}/contacts/${contactId}/appointments`, { headers });
+  if (!r.ok) return [];
+  const d = await r.json();
+  return d.events || d.appointments || [];
+}
+
+async function cancelGhlAppointment(eventId, headers) {
+  return fetch(`${GHL_BASE}/calendars/events/appointments/${eventId}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ appointmentStatus: 'cancelled' }),
+  });
+}
+
+function buildIso(fecha, hora) {
+  const probe = new Date(`${fecha}T${hora}:00Z`);
+  const madridStr = probe.toLocaleString('en-US', { timeZone: 'Europe/Madrid' });
+  const madridDate = new Date(madridStr + ' UTC');
+  const offsetH = Math.round((madridDate - probe) / 3600000);
+  const offset = `${offsetH >= 0 ? '+' : '-'}${String(Math.abs(offsetH)).padStart(2, '0')}:00`;
+  const start = new Date(`${fecha}T${hora}:00${offset}`);
+  const end = new Date(start.getTime() + 30 * 60000);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
+async function createGhlAppointment(contactId, fecha, hora, name, assignedUserId, headers) {
+  const { start, end } = buildIso(fecha, hora);
+  const payload = {
+    calendarId: GHL_CALENDAR_ID,
+    locationId: GHL_LOCATION,
+    contactId,
+    assignedUserId: assignedUserId || GHL_DEFAULT_ASSIGNED_USER,
+    startTime: start,
+    endTime: end,
+    title: `Consulta Capilar - ${name || 'Paciente'}`,
+    appointmentStatus: 'confirmed',
+    toNotify: false, // CFs already drive reminders; avoid double-notifying patient
+    selectedTimezone: 'Europe/Madrid',
+    ignoreFreeSlotValidation: true, // reconciling outside calendar slot rules
+  };
+  return fetch(`${GHL_BASE}/calendars/events/appointments`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+}
+
+function eventMatchesKoibox(event, koiboxFecha, koiboxHora) {
+  if (!event.startTime) return false;
+  // Parse ISO and convert to Madrid local for comparison with koibox YYYY-MM-DD + HH:MM
+  const dt = new Date(event.startTime);
+  if (isNaN(dt)) return false;
+  const madridStr = dt.toLocaleString('sv-SE', { timeZone: 'Europe/Madrid' }); // "2026-05-07 18:30:00"
+  const [date, time] = madridStr.split(' ');
+  return date === koiboxFecha && (time || '').slice(0, 5) === koiboxHora;
+}
+
+function isActiveEvent(e) {
+  const status = e.appointmentStatus || e.appoinmentStatus || '';
+  return status !== 'cancelled' && !e.deleted;
+}
+
+// Sync GHL calendar events to match Koibox state. Cancels mismatched active
+// events and creates a new one when needed. Reuses assignedUserId from the
+// most recent cancelled-or-active event so the same staff member stays on
+// the patient (avoids round-robin reassignment on every reschedule).
+async function syncGhlCalendar(contactId, contactName, koiboxFecha, koiboxHora, isCancelled, headers) {
+  const events = await listGhlAppointments(contactId, headers);
+  const active = events.filter(isActiveEvent);
+
+  if (isCancelled) {
+    for (const ev of active) {
+      try { await cancelGhlAppointment(ev.id, headers); } catch (_) {}
+    }
+    return { cancelled: active.length, created: false };
+  }
+
+  const matching = active.find((e) => eventMatchesKoibox(e, koiboxFecha, koiboxHora));
+  if (matching) return { cancelled: 0, created: false }; // already in sync
+
+  // Cancel any active events that don't match, then create one matching Koibox
+  for (const ev of active) {
+    try { await cancelGhlAppointment(ev.id, headers); } catch (_) {}
+  }
+
+  // Reuse assignedUserId from most recent event (active or cancelled) so the
+  // same staff member stays on the patient.
+  const sortedByStart = [...events].sort((a, b) =>
+    (b.startTime || '').localeCompare(a.startTime || '')
+  );
+  const reuseUser = sortedByStart.find((e) => e.assignedUserId)?.assignedUserId;
+
+  const createRes = await createGhlAppointment(contactId, koiboxFecha, koiboxHora, contactName, reuseUser, headers);
+  if (!createRes.ok) {
+    const txt = await createRes.text();
+    console.log(`[Reconcile] Calendar create failed contact=${contactId}: ${createRes.status} ${txt.slice(0, 200)}`);
+    return { cancelled: active.length, created: false, error: createRes.status };
+  }
+  return { cancelled: active.length, created: true };
+}
+
 function clinicaFromProvinciaId(id) {
   if (id === 680) return 'Madrid';
   if (id === 697) return 'Murcia';
@@ -162,48 +268,73 @@ async function reconcileOne(appt, ghlHeaders, stats) {
   const ghlHora = getCf(cfs, CONTACT_CF.hora_cita);
 
   const opp = await findOppByKoiboxId(contactId, koiboxId, ghlHeaders);
+  const contactName = [contact.firstName, contact.lastName].filter(Boolean).join(' ');
 
   if (isCancelled) {
-    if (!ghlFecha && !ghlHora && (!opp || opp.pipelineStageId === PIPELINE_STAGE_CANCELLED)) return;
+    const cfsAlreadyClear = !ghlFecha && !ghlHora && (!opp || opp.pipelineStageId === PIPELINE_STAGE_CANCELLED);
 
-    await patchContact(
-      contactId,
-      [
-        { id: CONTACT_CF.fecha_cita, field_value: '' },
-        { id: CONTACT_CF.hora_cita, field_value: '' },
-        { id: CONTACT_CF.clinica_cita, field_value: '' },
-      ],
-      ghlHeaders
-    );
-
-    if (opp && opp.pipelineStageId !== PIPELINE_STAGE_CANCELLED) {
-      await patchOpp(
-        opp.id,
-        {
-          pipelineStageId: PIPELINE_STAGE_CANCELLED,
-          customFields: [
-            { id: OPP_CF.fecha_cita_opp, field_value: '' },
-            { id: OPP_CF.hora_cita_opp, field_value: '' },
-            { id: OPP_CF.koibox_id, field_value: '' },
-          ],
-        },
+    if (!cfsAlreadyClear) {
+      await patchContact(
+        contactId,
+        [
+          { id: CONTACT_CF.fecha_cita, field_value: '' },
+          { id: CONTACT_CF.hora_cita, field_value: '' },
+          { id: CONTACT_CF.clinica_cita, field_value: '' },
+        ],
         ghlHeaders
       );
+
+      if (opp && opp.pipelineStageId !== PIPELINE_STAGE_CANCELLED) {
+        await patchOpp(
+          opp.id,
+          {
+            pipelineStageId: PIPELINE_STAGE_CANCELLED,
+            customFields: [
+              { id: OPP_CF.fecha_cita_opp, field_value: '' },
+              { id: OPP_CF.hora_cita_opp, field_value: '' },
+              { id: OPP_CF.koibox_id, field_value: '' },
+            ],
+          },
+          ghlHeaders
+        );
+      }
     }
 
-    await addNote(
-      contactId,
-      `🔄 RECONCILE — cita cancelada en Koibox (#${koiboxId}). Sincronizado a GHL. ${new Date().toISOString()}`,
-      ghlHeaders
-    );
-    stats.cancelled += 1;
-    console.log(`[Reconcile] Cancelled koibox=${koiboxId} contact=${contactId}`);
+    // Cancel any active GHL calendar events even if CFs were already clear,
+    // since the calendar can drift independently from the CFs.
+    const calRes = await syncGhlCalendar(contactId, contactName, '', '', true, ghlHeaders);
+
+    if (!cfsAlreadyClear || calRes.cancelled > 0) {
+      await addNote(
+        contactId,
+        `🔄 RECONCILE — cita cancelada en Koibox (#${koiboxId}). Sincronizado a GHL${calRes.cancelled > 0 ? ` (eventos cancelados: ${calRes.cancelled})` : ''}. ${new Date().toISOString()}`,
+        ghlHeaders
+      );
+      stats.cancelled += 1;
+      console.log(`[Reconcile] Cancelled koibox=${koiboxId} contact=${contactId} ghlEventsCancelled=${calRes.cancelled}`);
+    }
     return;
   }
 
   const fechaDiff = ghlFecha && ghlFecha !== koiboxFecha;
   const horaDiff = ghlHora && ghlHora !== koiboxHora;
-  if (!fechaDiff && !horaDiff) return;
+
+  // Always sync calendar — the GHL calendar event can drift from CFs even when
+  // CFs match Koibox (e.g. reschedules done outside our flow that updated only CFs).
+  const calSync = await syncGhlCalendar(contactId, contactName, koiboxFecha, koiboxHora, false, ghlHeaders);
+
+  if (!fechaDiff && !horaDiff) {
+    if (calSync.created || calSync.cancelled > 0) {
+      await addNote(
+        contactId,
+        `🔄 RECONCILE — calendar resincronizado (Koibox #${koiboxId} ${koiboxFecha} ${koiboxHora}). Cancelados: ${calSync.cancelled}, creado nuevo: ${calSync.created}. ${new Date().toISOString()}`,
+        ghlHeaders
+      );
+      stats.calendarOnly = (stats.calendarOnly || 0) + 1;
+      console.log(`[Reconcile] Calendar-only sync koibox=${koiboxId} contact=${contactId} cancelled=${calSync.cancelled} created=${calSync.created}`);
+    }
+    return;
+  }
 
   await patchContact(
     contactId,
@@ -231,7 +362,7 @@ async function reconcileOne(appt, ghlHeaders, stats) {
 
   await addNote(
     contactId,
-    `🔄 RECONCILE — cita reagendada en Koibox (#${koiboxId}). GHL: ${ghlFecha} ${ghlHora} → Koibox: ${koiboxFecha} ${koiboxHora}. ${new Date().toISOString()}`,
+    `🔄 RECONCILE — cita reagendada en Koibox (#${koiboxId}). GHL CFs: ${ghlFecha} ${ghlHora} → Koibox: ${koiboxFecha} ${koiboxHora}. Calendar: cancelados ${calSync.cancelled}, creado nuevo: ${calSync.created}. ${new Date().toISOString()}`,
     ghlHeaders
   );
 
@@ -263,7 +394,7 @@ exports.handler = async () => {
   const appts = await fetchKoiboxAppointments(ymd(today), ymd(end), koiboxHeaders);
   console.log(`[Reconcile] Koibox appointments in window: ${appts.length}`);
 
-  const stats = { checked: 0, updated: 0, cancelled: 0, skippedNoContact: 0, errors: 0 };
+  const stats = { checked: 0, updated: 0, cancelled: 0, calendarOnly: 0, skippedNoContact: 0, errors: 0 };
 
   for (const appt of appts) {
     stats.checked += 1;
