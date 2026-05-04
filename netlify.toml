@@ -35,6 +35,11 @@
 [functions."cron-detect-orphan-opps"]
   schedule = "17 * * * *"
 
+# Safety net: reconcile Stripe paid sessions vs GHL bono_pagado state (5–60 min)
+# and paid-but-no-booking SLA (24–48h). Alerts via email on any drift.
+[functions."cron-reconcile-payments"]
+  schedule = "*/15 * * * *"
+
 [[redirects]]
   from = "/ingest/static/*"
   to = "https://eu-assets.i.posthog.com/static/:splat"

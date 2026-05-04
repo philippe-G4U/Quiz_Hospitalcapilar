@@ -105,7 +105,15 @@ const BookingCalendar = ({ ubicacion, nombre, email, telefono, contactId, onBook
         });
         if (onBooked) onBooked(data);
       } else if (data.error === 'bono_required') {
-        alert('Para poder agendar tu cita, primero necesitas completar el pago del test capilar.');
+        // If the user got here via /pago-confirmado we already verified payment server-side.
+        // Reaching this branch means a verification mismatch (race or transient GHL failure),
+        // not that they actually owe money — tell them to call so we don't gaslight a paid customer.
+        const looksPaid = typeof window !== 'undefined' && /\/pago-confirmado/.test(window.location.pathname);
+        if (looksPaid) {
+          alert('Hubo un error verificando tu pago. Por favor llámanos al 623 457 218 y te ayudamos a agendar tu cita en el momento.');
+        } else {
+          alert('Para poder agendar tu cita, primero necesitas completar el pago del test capilar.');
+        }
       } else if (data.error === 'daily_limit_reached') {
         alert('No quedan huecos disponibles para este día. Por favor selecciona otra fecha.');
         setSelectedSlot(null);

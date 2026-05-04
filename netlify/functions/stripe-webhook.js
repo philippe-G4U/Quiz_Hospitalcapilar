@@ -50,7 +50,21 @@ exports.handler = async (event) => {
         if (contactId) {
           console.log('[Stripe Webhook] Resolved contactId via email fallback:', contactId);
         } else {
+          // Critical: payment succeeded but we cannot link it to any GHL contact.
+          // This is the worst failure mode — alert immediately so the comercial
+          // team can reach out to the patient before they think the payment was lost.
           console.log('[Stripe Webhook] No GHL contact for email:', session.customer_email);
+          await sendAlert(
+            'stripe-webhook',
+            `Payment ${(session.amount_total / 100).toFixed(2)}€ succeeded but no GHL contact for email — manual outreach required`,
+            {
+              severity: 'critical',
+              session_id: session.id,
+              email: session.customer_email,
+              cardholder: session.customer_details?.name,
+              amount: session.amount_total / 100,
+            }
+          );
         }
       }
 
