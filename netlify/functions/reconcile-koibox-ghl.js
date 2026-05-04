@@ -192,26 +192,40 @@ function isActiveEvent(e) {
   return status !== 'cancelled' && !e.deleted;
 }
 
+// Past events must NEVER be cancelled by the cron — that triggers a GHL
+// "no-show" workflow that messages the patient asking to rebook. Past stale
+// events are tolerated as historical noise; only future events get
+// reconciled. (Discovered 2026-05-04 after Dhally received a confusing
+// "no pudiste venir hoy" message when we cancelled her stale Apr 29 event.)
+function isFutureEvent(e) {
+  if (!e.startTime) return false;
+  return new Date(e.startTime).getTime() > Date.now();
+}
+
 // Sync GHL calendar events to match Koibox state. Cancels mismatched active
 // events and creates a new one when needed. Reuses assignedUserId from the
 // most recent cancelled-or-active event so the same staff member stays on
 // the patient (avoids round-robin reassignment on every reschedule).
 async function syncGhlCalendar(contactId, contactName, koiboxFecha, koiboxHora, isCancelled, headers) {
   const events = await listGhlAppointments(contactId, headers);
-  const active = events.filter(isActiveEvent);
+  // Only future active events are eligible for cancellation — touching past
+  // events triggers GHL no-show workflows even on appointmentStatus=cancelled.
+  const cancellable = events.filter((e) => isActiveEvent(e) && isFutureEvent(e));
 
   if (isCancelled) {
-    for (const ev of active) {
+    for (const ev of cancellable) {
       try { await cancelGhlAppointment(ev.id, headers); } catch (_) {}
     }
-    return { cancelled: active.length, created: false };
+    return { cancelled: cancellable.length, created: false };
   }
 
-  const matching = active.find((e) => eventMatchesKoibox(e, koiboxFecha, koiboxHora));
+  // Match against active future events only — a stale past event doesn't count
+  // as "in sync" but we won't cancel it either.
+  const matching = cancellable.find((e) => eventMatchesKoibox(e, koiboxFecha, koiboxHora));
   if (matching) return { cancelled: 0, created: false }; // already in sync
 
-  // Cancel any active events that don't match, then create one matching Koibox
-  for (const ev of active) {
+  // Cancel any active future events that don't match, then create one matching Koibox
+  for (const ev of cancellable) {
     try { await cancelGhlAppointment(ev.id, headers); } catch (_) {}
   }
 
@@ -226,9 +240,9 @@ async function syncGhlCalendar(contactId, contactName, koiboxFecha, koiboxHora, 
   if (!createRes.ok) {
     const txt = await createRes.text();
     console.log(`[Reconcile] Calendar create failed contact=${contactId}: ${createRes.status} ${txt.slice(0, 200)}`);
-    return { cancelled: active.length, created: false, error: createRes.status };
+    return { cancelled: cancellable.length, created: false, error: createRes.status };
   }
-  return { cancelled: active.length, created: true };
+  return { cancelled: cancellable.length, created: true };
 }
 
 function clinicaFromProvinciaId(id) {
