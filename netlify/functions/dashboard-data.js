@@ -494,14 +494,28 @@ async function fetchGhlOppsWithContacts(startDate, endDate) {
   await Promise.all(Array.from({ length: Math.min(concurrency, contactIds.length) }, worker));
   if (lookupFails > 0) console.log('[dashboard-data] contact lookup failures:', lookupFails, 'of', contactIds.length);
 
-  // Keep all leads in pipeline. Only exclude obvious non-funnel sources
-  // (IG/FB DMs from Manychat with explicit source, manual entries).
+  // Funnel-only filter. We run paid Meta + Google exclusively, so a real
+  // lead has at least one of:
+  //   - source contains paid pattern (facebook, google, quiz, form hc, …)
+  //   - door CF set (came through ghl-proxy or cron-enrich)
+  //   - utm_source CF set (came with URL tracking)
+  //   - tag meta_form_directo (cron-enrich tagged it)
+  // Anything with all four missing is GHL's native IG capture (handles,
+  // Chat AI bot, Nova Chat) — DM noise that shouldn't count as a lead.
+  // User confirmed 2026-05-04: "los de IG dms nativos hay que volarlo de
+  // todo el reporte, no nos sirve."
   const isFunnelSource = (contact) => {
     const source = (contact.source || '').toLowerCase();
     if (source.includes('social media instagram')) return false;
     if (source.includes('social media facebook')) return false;
     if (source.includes('manual')) return false;
-    return true;
+    const cfs = contact.customFields || [];
+    const cfHas = (id) => cfs.some(f => f.id === id && (f.value || f.fieldValue));
+    const hasSourcePattern = /facebook|instagram|paid_social|google|cpc|adwords|quiz|form hc|lead ad|meta/i.test(source);
+    const hasDoor = cfHas('2JYlfGk60lHbuyh9vcdV');     // CONTACT_DOOR_CF
+    const hasUtmSource = cfHas('MisB9YJJAH7cnh8JOtQn'); // CONTACT_UTM_SOURCE_CF
+    const hasMetaTag = (contact.tags || []).some(t => /meta_form_directo/i.test(t || ''));
+    return hasSourcePattern || hasDoor || hasUtmSource || hasMetaTag;
   };
   // Count every lead in the pipeline including lost + abandoned. Only filter
   // is isFunnelSource (drops IG/FB DMs from Manychat + manual entries).
