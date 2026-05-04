@@ -11,6 +11,7 @@ function readQueryParams() {
     email: sp.get('email') || '',
     telefono: sp.get('telefono') || sp.get('phone') || '',
     ubicacion: sp.get('ubicacion') || sp.get('ciudad') || '',
+    contactId: sp.get('contactId') || '',
     bonoPrice: parseInt(sp.get('amount') || '125', 10),
     sessionId: sp.get('session_id') || '',
   };
@@ -52,6 +53,7 @@ function PaymentConfirmationInner() {
       email={params.email}
       telefono={params.telefono}
       ubicacion={params.ubicacion}
+      contactId={params.contactId}
       bonoPrice={params.bonoPrice}
     />
   );

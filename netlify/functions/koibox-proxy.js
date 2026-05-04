@@ -370,53 +370,79 @@ async function createAppointment(body, koiboxHeaders, corsHeaders) {
   const flow = getFlowConfig(tipo_consulta);
   const employeeIds = flow.employees[clinica] || flow.employees.madrid;
 
-  // 0. Check GHL for payment status + ECP + sexo + gender (to set notes, tags, and bono gate)
+  // 0. Resolve a GHL contactId. The Meta→paywall direct flow doesn't carry one,
+  // and the quiz flow can race past the contact creation — fall back to email
+  // lookup so the bono gate doesn't block paid users.
+  let resolvedContactId = ghl_contact_id || '';
+  const ghlKey = process.env.VITE_GHL_API_KEY;
+  const locationId = process.env.VITE_GHL_LOCATION_ID || 'U4SBRYIlQtGBDHLFwEUf';
+  const ghlHeaders = ghlKey ? {
+    'Authorization': `Bearer ${ghlKey}`,
+    'Content-Type': 'application/json',
+    'Version': '2021-07-28',
+  } : null;
+  if (!resolvedContactId && ghlHeaders && email) {
+    try {
+      const searchRes = await fetch(`${GHL_BASE}/contacts/search`, {
+        method: 'POST',
+        headers: ghlHeaders,
+        body: JSON.stringify({
+          locationId,
+          pageLimit: 1,
+          filters: [{ field: 'email', operator: 'eq', value: email }],
+        }),
+      });
+      if (searchRes.ok) {
+        const data = await searchRes.json();
+        resolvedContactId = data.contacts?.[0]?.id || '';
+        if (resolvedContactId) console.log('[Koibox] Resolved contactId via email fallback:', resolvedContactId);
+      }
+    } catch (err) {
+      console.log('[Koibox] email fallback search failed:', err.message);
+    }
+  }
+
+  // 1. Check GHL for payment status + ECP + sexo + gender (to set notes, tags, and bono gate)
   let bonoPaid = false;
   let contactEcp = '';
   let contactSexo = '';
   let contactGender = '';
-  if (ghl_contact_id) {
+  if (resolvedContactId && ghlHeaders) {
     try {
-      const ghlKey = process.env.VITE_GHL_API_KEY;
-      const locationId = process.env.VITE_GHL_LOCATION_ID || 'U4SBRYIlQtGBDHLFwEUf';
-      if (ghlKey) {
-        const ghlHeaders = {
-          'Authorization': `Bearer ${ghlKey}`,
-          'Content-Type': 'application/json',
-          'Version': '2021-07-28',
-        };
-        // Get contact to read ECP + sexo CF + standard gender
-        const contactRes = await fetch(`${GHL_BASE}/contacts/${ghl_contact_id}`, { headers: ghlHeaders });
-        if (contactRes.ok) {
-          const contactData = await contactRes.json();
-          const contact = contactData?.contact || {};
-          const cfs = contact.customFields || [];
-          const ecpField = cfs.find(f => f.id === 'cFIcdJlT9sfnC3KMSwDD');
-          contactEcp = ecpField?.value || '';
-          const sexoField = cfs.find(f => f.id === 'P7D2edjnOHwXLpglw9tB');
-          contactSexo = (sexoField?.value || '').toLowerCase();
-          contactGender = (contact.gender || '').toLowerCase();
-        }
-        // Search opportunity for payment status
-        const oppSearchRes = await fetch(
-          `${GHL_BASE}/opportunities/search?location_id=${locationId}&contact_id=${ghl_contact_id}&status=open`,
-          { headers: ghlHeaders }
-        );
-        if (oppSearchRes.ok) {
-          const oppData = await oppSearchRes.json();
-          const opp = (oppData?.opportunities || [])[0];
-          if (opp?.id) {
-            const oppDetailRes = await fetch(`${GHL_BASE}/opportunities/${opp.id}`, { headers: ghlHeaders });
-            if (oppDetailRes.ok) {
-              const oppDetail = await oppDetailRes.json();
-              const oppCfs = oppDetail?.opportunity?.customFields || [];
-              const statusField = oppCfs.find(f => f.id === 'Hk81fRW2HaTqlry4I1L0');
-              bonoPaid = statusField?.value?.startsWith('paid');
-            }
+      // Get contact to read ECP + sexo CF + standard gender
+      const contactRes = await fetch(`${GHL_BASE}/contacts/${resolvedContactId}`, { headers: ghlHeaders });
+      if (contactRes.ok) {
+        const contactData = await contactRes.json();
+        const contact = contactData?.contact || {};
+        const cfs = contact.customFields || [];
+        const ecpField = cfs.find(f => f.id === 'cFIcdJlT9sfnC3KMSwDD');
+        contactEcp = ecpField?.value || '';
+        const sexoField = cfs.find(f => f.id === 'P7D2edjnOHwXLpglw9tB');
+        contactSexo = (sexoField?.value || '').toLowerCase();
+        contactGender = (contact.gender || '').toLowerCase();
+      }
+      // Search opportunity for payment status
+      const oppSearchRes = await fetch(
+        `${GHL_BASE}/opportunities/search?location_id=${locationId}&contact_id=${resolvedContactId}&status=open`,
+        { headers: ghlHeaders }
+      );
+      if (oppSearchRes.ok) {
+        const oppData = await oppSearchRes.json();
+        const opp = (oppData?.opportunities || [])[0];
+        if (opp?.id) {
+          const oppDetailRes = await fetch(`${GHL_BASE}/opportunities/${opp.id}`, { headers: ghlHeaders });
+          if (oppDetailRes.ok) {
+            const oppDetail = await oppDetailRes.json();
+            const oppCfs = oppDetail?.opportunity?.customFields || [];
+            const statusField = oppCfs.find(f => f.id === 'Hk81fRW2HaTqlry4I1L0');
+            // Opportunity custom fields are returned as `fieldValue` (not `value`)
+            // — accept either to stay robust if GHL changes the shape.
+            const statusValue = statusField?.fieldValue || statusField?.value || '';
+            bonoPaid = typeof statusValue === 'string' && statusValue.startsWith('paid');
           }
         }
-        console.log('[Koibox] GHL check — ECP:', contactEcp, 'sexo:', contactSexo, 'gender:', contactGender, 'bonoPaid:', bonoPaid);
       }
+      console.log('[Koibox] GHL check — ECP:', contactEcp, 'sexo:', contactSexo, 'gender:', contactGender, 'bonoPaid:', bonoPaid);
     } catch (err) {
       console.log('[Koibox] GHL payment check failed:', err.message);
     }
@@ -529,7 +555,7 @@ async function createAppointment(body, koiboxHeaders, corsHeaders) {
   // If any of these fail, the Koibox appointment is already created, so we return success
   let ghlSync = { status: 'skipped' };
   try {
-    ghlSync = await syncAppointmentToGHL({ nombre, email, movil, fecha, hora_inicio, clinica, koiboxId: String(appointmentData.id || ''), ghl_contact_id, bonoPaid, contactEcp, contactSexo, contactGender });
+    ghlSync = await syncAppointmentToGHL({ nombre, email, movil, fecha, hora_inicio, clinica, koiboxId: String(appointmentData.id || ''), ghl_contact_id: resolvedContactId, bonoPaid, contactEcp, contactSexo, contactGender });
   } catch (err) {
     ghlSync = { status: 'error', error: err.message };
     console.log('[Koibox→GHL] Sync failed:', err.message);
@@ -591,7 +617,7 @@ async function createAppointment(body, koiboxHeaders, corsHeaders) {
     clinica,
     fecha,
     hora_inicio,
-    ghl_contact_id,
+    ghl_contact_id: resolvedContactId,
   });
 
   return {

@@ -10,7 +10,7 @@ const WhatsAppIcon = ({ size = 22, className = '' }) => (
   </svg>
 );
 
-const PaymentConfirmation = ({ nombre, email, telefono, ubicacion, onCallRequest, bonoPrice = 125 }) => {
+const PaymentConfirmation = ({ nombre, email, telefono, ubicacion, contactId, onCallRequest, bonoPrice = 125 }) => {
   const firstName = (nombre || 'Paciente').split(' ')[0];
   const waText = encodeURIComponent(
     `Hola, soy ${firstName}. Acabo de pagar el bono de ${bonoPrice}€ del Protocolo Femenino Trichometabolic. ¿Pueden ayudarme a agendar mi cita?`
@@ -76,6 +76,7 @@ const PaymentConfirmation = ({ nombre, email, telefono, ubicacion, onCallRequest
             nombre={nombre}
             email={email}
             telefono={telefono}
+            contactId={contactId}
           />
         </div>
 
