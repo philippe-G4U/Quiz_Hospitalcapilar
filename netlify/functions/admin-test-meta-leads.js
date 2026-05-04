@@ -88,6 +88,58 @@ exports.handler = async (event) => {
     sample: allForms.slice(0, 8).map(f => ({ id: f.id, name: f.name, status: f.status, page_id: f.page_id })),
   };
 
+  // 3.4) Lead form ID lives on the AdSet's promoted_object, not the Ad's creative.
+  // Inspect adsets to find which form_id each is using.
+  if (account) {
+    try {
+      const url = `${META_GRAPH}/${account}/adsets?fields=id,name,campaign{name,objective},promoted_object,destination_type&limit=100&access_token=${token}`;
+      const r = await fetch(url);
+      const d = await r.json();
+      const formIdsFromAdsets = new Set();
+      const adsetSample = [];
+      for (const a of (d.data || [])) {
+        const fid = a.promoted_object?.lead_gen_form_id || a.promoted_object?.form_id;
+        if (fid) formIdsFromAdsets.add(fid);
+        if (adsetSample.length < 8) {
+          adsetSample.push({
+            adset_id: a.id,
+            adset_name: (a.name || '').slice(0, 40),
+            campaign: (a.campaign?.name || '').slice(0, 40),
+            destination_type: a.destination_type,
+            lead_gen_form_id: fid || null,
+          });
+        }
+      }
+      result.checks.adsets_inspect = {
+        ok: true,
+        total_adsets: (d.data || []).length,
+        form_ids_found: formIdsFromAdsets.size,
+        sample: adsetSample,
+      };
+      // Probe each form ID to find page owner
+      const formProbesFromAdsets = [];
+      for (const fid of [...formIdsFromAdsets].slice(0, 8)) {
+        const fr = await fetch(`${META_GRAPH}/${fid}?fields=id,name,status,page,locale&access_token=${token}`);
+        const fd = await fr.json();
+        formProbesFromAdsets.push({
+          form_id: fid,
+          ok: fr.ok,
+          name: fd.name,
+          status: fd.status,
+          page_id: fd.page?.id || fd.page_id,
+          page_name: fd.page?.name,
+          error: fd.error?.message,
+        });
+        if (fr.ok && fd.page?.id) {
+          allForms.push({ id: fd.id, name: fd.name, status: fd.status, page_id: fd.page.id });
+        }
+      }
+      result.checks.form_probes_from_adsets = formProbesFromAdsets;
+    } catch (e) {
+      result.checks.adsets_inspect = { ok: false, error: e.message };
+    }
+  }
+
   // 3.5) Inspect Lead-Ads from the ad account, broader search:
   //  - Try ALL ads (not filtered by active) to catch paused Lead Ad campaigns
   //  - Look in tracking_specs and creative.object_type for LEAD_GENERATION
