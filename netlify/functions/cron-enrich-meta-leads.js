@@ -123,11 +123,21 @@ async function enrichOne(c, ghlHeaders, metaAttribution) {
   const linksOk = currentLink === link && currentPaywall === linkPaywall;
   const metaCamp = metaAttribution?.campaign_name || '';
   const utmsOk = !metaAttribution || (metaCamp && currentUtmCampaign === metaCamp);
+  const dbg = {
+    cf_count: cfs.length,
+    cf_link_field: cfs.find(f => f.id === CONTACT_LINK_AGENDAR_CF) || null,
+    cf_camp_field: cfs.find(f => f.id === CONTACT_UTM_CAMPAIGN_CF) || null,
+    currentLink_len: currentLink.length,
+    link_len: link.length,
+    currentUtmCampaign,
+    metaCamp,
+    linksOk,
+    utmsOk,
+    hasMeta: !!metaAttribution,
+  };
   if (linksOk && utmsOk) {
-    console.log(`[cron-enrich] SKIP ${c.email || c.id} — linksOk=${linksOk} hasMeta=${!!metaAttribution} curCamp="${currentUtmCampaign}" metaCamp="${metaCamp}"`);
-    return { id: c.id, skipped: true };
+    return { id: c.id, skipped: true, debug: dbg };
   }
-  console.log(`[cron-enrich] WILL UPDATE ${c.email || c.id} — linksOk=${linksOk} hasMeta=${!!metaAttribution} curCamp="${currentUtmCampaign}" metaCamp="${metaCamp}"`);
 
   // PUT contact CFs (link_agendar + link_paywall + door=meta_form_directo).
   // When metaAttribution is available, also write utm_source/medium/campaign
@@ -231,6 +241,7 @@ exports.handler = async (event) => {
     let contacts = await searchRecentOrphans(ghlHeaders, lookback);
     if (Number.isFinite(maxContacts)) contacts = contacts.slice(0, maxContacts);
     scanned = contacts.length;
+    const debugSamples = [];
     for (const c of contacts) {
       try {
         const email = (c.email || '').toLowerCase().trim();
@@ -239,11 +250,13 @@ exports.handler = async (event) => {
         const r = await enrichOne(c, ghlHeaders, metaLead);
         if (r.skipped) skipped += 1;
         else if (r.updated) { updated += 1; updates.push(r.name + ' (' + r.id + ')'); }
+        if (debugSamples.length < 3 && r.debug) debugSamples.push({ email, ...r.debug });
       } catch (e) {
         failed += 1;
         console.error('[cron-enrich] failed for', c.id, e.message);
       }
     }
+    if (debugSamples.length) updates.push({ _debug: debugSamples });
   } catch (e) {
     console.error('[cron-enrich] fatal', e);
     return { statusCode: 500, body: e.message };
