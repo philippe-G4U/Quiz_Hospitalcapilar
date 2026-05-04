@@ -51,10 +51,12 @@ exports.handler = async (event) => {
     result.checks.token_permissions = { ok: false, error: e.message };
   }
 
-  // 2) List Pages this token can access (lead forms live on Pages, not Ad Accounts)
+  // 2) List Pages this token can access AND what tasks (permissions) it has
+  // on each page. Lead forms require MANAGE_LEADS task — without it the form
+  // list endpoint returns empty even with leads_retrieval scope.
   let pageIds = [];
   try {
-    const r = await fetch(`${META_GRAPH}/me/accounts?fields=id,name&access_token=${token}`);
+    const r = await fetch(`${META_GRAPH}/me/accounts?fields=id,name,tasks,access_token&access_token=${token}`);
     const d = await r.json();
     if (!r.ok) {
       result.checks.list_pages = { ok: false, status: r.status, error: d.error?.message || 'unknown' };
@@ -63,8 +65,33 @@ exports.handler = async (event) => {
       result.checks.list_pages = {
         ok: true,
         total: (d.data || []).length,
-        sample: (d.data || []).slice(0, 5).map(p => ({ id: p.id, name: p.name })),
+        sample: (d.data || []).slice(0, 5).map(p => ({
+          id: p.id,
+          name: p.name,
+          tasks: p.tasks || [],
+          has_page_access_token: !!p.access_token,
+        })),
       };
+      // Try listing forms with the PAGE access token (different from user token)
+      const firstPage = (d.data || [])[0];
+      if (firstPage && firstPage.access_token) {
+        try {
+          const fr = await fetch(`${META_GRAPH}/${firstPage.id}/leadgen_forms?fields=id,name,status&limit=100&access_token=${firstPage.access_token}`);
+          const fd = await fr.json();
+          result.checks.list_forms_with_page_token = {
+            ok: fr.ok,
+            total: (fd.data || []).length,
+            sample: (fd.data || []).slice(0, 5).map(f => ({ id: f.id, name: f.name, status: f.status })),
+            error: fd.error?.message,
+          };
+          // If forms were found via page token, populate allForms here
+          if (fr.ok && fd.data?.length) {
+            for (const f of fd.data) allForms.push({ ...f, page_id: firstPage.id, page_token: firstPage.access_token });
+          }
+        } catch (e) {
+          result.checks.list_forms_with_page_token = { ok: false, error: e.message };
+        }
+      }
     }
   } catch (e) {
     result.checks.list_pages = { ok: false, error: e.message };
