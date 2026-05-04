@@ -88,27 +88,47 @@ exports.handler = async (event) => {
     sample: allForms.slice(0, 8).map(f => ({ id: f.id, name: f.name, status: f.status, page_id: f.page_id })),
   };
 
-  // 3.5) If no forms via Pages, find form IDs by inspecting Lead-Ads from the ad account
-  if (allForms.length === 0 && account) {
+  // 3.5) Inspect Lead-Ads from the ad account, broader search:
+  //  - Try ALL ads (not filtered by active) to catch paused Lead Ad campaigns
+  //  - Look in tracking_specs and creative.object_type for LEAD_GENERATION
+  //  - Print ad sample to see what creative structure the account uses
+  if (account) {
     try {
-      const url = `${META_GRAPH}/${account}/ads?fields=id,name,creative{object_story_spec},effective_status&filtering=[{"field":"effective_status","operator":"IN","value":["ACTIVE"]}]&limit=100&access_token=${token}`;
+      const url = `${META_GRAPH}/${account}/ads?fields=id,name,effective_status,campaign{name,objective},creative{id,object_type,object_story_spec,asset_feed_spec},tracking_specs&limit=50&access_token=${token}`;
       const r = await fetch(url);
       const d = await r.json();
+      const adSample = [];
       const formIdsFromAds = new Set();
+      const objectives = new Set();
       for (const a of (d.data || [])) {
+        objectives.add(a.campaign?.objective || '');
         const oss = a.creative?.object_story_spec || {};
-        // Lead Ads stash form_id in link_data.lead_gen_form_id or similar
         const fid = oss.link_data?.lead_gen_form_id
                  || oss.video_data?.lead_gen_form_id
-                 || oss.lead_gen?.form_id;
+                 || oss.lead_gen?.form_id
+                 || a.creative?.lead_form_id
+                 || a.creative?.asset_feed_spec?.call_to_action_types?.find(x => x.includes('LEAD'))?.lead_gen_form_id;
         if (fid) formIdsFromAds.add(fid);
+        if (adSample.length < 5) {
+          adSample.push({
+            ad_id: a.id,
+            ad_name: (a.name || '').slice(0, 40),
+            campaign: (a.campaign?.name || '').slice(0, 40),
+            objective: a.campaign?.objective,
+            status: a.effective_status,
+            creative_object_type: a.creative?.object_type,
+            has_lead_gen_form_id: !!fid,
+          });
+        }
       }
-      result.checks.form_ids_from_ads = {
-        ok: formIdsFromAds.size > 0,
-        total: formIdsFromAds.size,
-        sample: [...formIdsFromAds].slice(0, 10),
+      result.checks.ad_account_inspect = {
+        ok: true,
+        total_ads_inspected: (d.data || []).length,
+        unique_objectives: [...objectives],
+        form_ids_found: formIdsFromAds.size,
+        sample_ads: adSample,
       };
-      // Try to fetch a lead from each form ID directly
+      // Try to fetch each form ID directly to find its Page owner
       const formProbes = [];
       for (const fid of [...formIdsFromAds].slice(0, 5)) {
         const fr = await fetch(`${META_GRAPH}/${fid}?fields=id,name,status,page_id&access_token=${token}`);
@@ -120,9 +140,29 @@ exports.handler = async (event) => {
       }
       result.checks.form_probes = formProbes;
     } catch (e) {
-      result.checks.form_ids_from_ads = { ok: false, error: e.message };
+      result.checks.ad_account_inspect = { ok: false, error: e.message };
     }
   }
+
+  // 3.6) Also check all businesses + ad accounts the System User can see
+  try {
+    const r = await fetch(`${META_GRAPH}/me/businesses?fields=id,name&access_token=${token}`);
+    const d = await r.json();
+    result.checks.businesses_visible = {
+      ok: r.ok,
+      total: (d.data || []).length,
+      sample: (d.data || []).map(b => ({ id: b.id, name: b.name })),
+    };
+  } catch (e) { result.checks.businesses_visible = { ok: false, error: e.message }; }
+  try {
+    const r = await fetch(`${META_GRAPH}/me/adaccounts?fields=id,name,account_status&access_token=${token}`);
+    const d = await r.json();
+    result.checks.ad_accounts_visible = {
+      ok: r.ok,
+      total: (d.data || []).length,
+      sample: (d.data || []).map(a => ({ id: a.id, name: a.name, status: a.account_status })),
+    };
+  } catch (e) { result.checks.ad_accounts_visible = { ok: false, error: e.message }; }
 
   // 4) Try to fetch leads from the first form
   if (allForms.length > 0) {
