@@ -1220,6 +1220,7 @@ exports.handler = async (event) => {
           multiIf(
             toString(properties.$pathname) LIKE '%/rapido/%', 'quiz_corto',
             toString(properties.$pathname) LIKE '%/form/%', 'formulario_directo',
+            toString(properties.$pathname) LIKE '/p/%' OR toString(properties.$pathname) = '/p', 'form_meta_directo',
             coalesce(
               nullIf(toString(properties.funnel_type), ''),
               nullIf(toString(person.properties.funnel_type), ''),
