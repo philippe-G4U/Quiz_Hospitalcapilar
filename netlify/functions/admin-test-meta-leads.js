@@ -51,6 +51,9 @@ exports.handler = async (event) => {
     result.checks.token_permissions = { ok: false, error: e.message };
   }
 
+  // Declare upfront — populated by the Page-token + per-Page sections below.
+  const allForms = [];
+
   // 2) List Pages this token can access AND what tasks (permissions) it has
   // on each page. Lead forms require MANAGE_LEADS task — without it the form
   // list endpoint returns empty even with leads_retrieval scope.
@@ -97,8 +100,7 @@ exports.handler = async (event) => {
     result.checks.list_pages = { ok: false, error: e.message };
   }
 
-  // 3) For each Page, list its lead forms
-  const allForms = [];
+  // 3) For each Page, list its lead forms (allForms already declared above)
   for (const pageId of pageIds) {
     try {
       const url = `${META_GRAPH}/${pageId}/leadgen_forms?fields=id,name,status,created_time&limit=100&access_token=${token}`;
