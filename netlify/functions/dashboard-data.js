@@ -565,12 +565,21 @@ async function fetchGhlOppsWithContacts(startDate, endDate) {
     const isAgendada  = GHL_STAGE_AGENDADA.has(stage);
     const isAtendida  = GHL_STAGE_ATENDIDA.has(stage);
     const isNoShow    = GHL_STAGE_NO_SHOW.has(stage);
-    const isCancelada = stage === GHL_STAGE_CANCELLED;       // dedicated stage now
-    const isAbandoned = stage === GHL_STAGE_ABANDONED;       // new stage
-    // Total citas = anything that ever was a booking. Stage Lost/Cancelled
-    // is now ONLY real cancellations (Abandoned is its own stage), so we
-    // include cancellations in the booked count without needing the tag.
-    const isBooked = GHL_BOOKED_STAGES.has(stage);
+    // Lost/Cancelled stage holds two things until old "Lost" data is migrated
+    // to the new Abandoned stage:
+    //   1. Real appointment cancellations (have tag cita_cancelada)
+    //   2. Abandoned leads (legacy Lost without cancellation tag)
+    // Only #1 counts as a cancelled booking.
+    const hasCancelTag = tags.includes('cita_cancelada') || tags.includes('appointment_cancelled');
+    const isCancelada = stage === GHL_STAGE_CANCELLED && hasCancelTag;
+    // Abandoned = explicit Abandoned stage OR Lost/Cancelled without cancel tag
+    const isAbandoned = stage === GHL_STAGE_ABANDONED
+                     || (stage === GHL_STAGE_CANCELLED && !hasCancelTag);
+    // isBooked: real bookings only, excluding abandoned leads.
+    const isBooked = GHL_STAGE_AGENDADA.has(stage)
+                  || GHL_STAGE_ATENDIDA.has(stage)
+                  || GHL_STAGE_NO_SHOW.has(stage)
+                  || isCancelada;
     const isPaid = stage === GHL_STAGE_PAID
                 || stage === GHL_STAGE_WON
                 || tags.includes('bono_pagado');             // belt-and-suspenders

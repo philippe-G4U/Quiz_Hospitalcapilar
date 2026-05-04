@@ -143,11 +143,17 @@ async function enrichOne(c, ghlHeaders, metaAttribution) {
   // When metaAttribution is available, also write utm_source/medium/campaign
   // /content/term so the dashboard can group leads by Meta campaign instead
   // of dropping them into "sin-dato".
+  // Don't overwrite `door` if already set to quiz_largo/quiz_corto/form —
+  // those are the original entry points and should be preserved. Only set
+  // door=meta_form_directo for contacts that have no door yet.
+  const currentDoor = (cfs.find(f => f.id === CONTACT_DOOR_CF)?.value || '').toLowerCase();
   const customFields = [
     { id: CONTACT_LINK_AGENDAR_CF, field_value: link },
     { id: CONTACT_LINK_PAYWALL_CF, field_value: linkPaywall },
-    { id: CONTACT_DOOR_CF, field_value: 'meta_form_directo' },
   ];
+  if (!currentDoor) {
+    customFields.push({ id: CONTACT_DOOR_CF, field_value: 'meta_form_directo' });
+  }
   if (metaAttribution) {
     customFields.push(
       { id: CONTACT_UTM_SOURCE_CF,   field_value: 'facebook' },

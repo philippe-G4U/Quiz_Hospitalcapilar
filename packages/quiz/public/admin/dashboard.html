@@ -464,11 +464,24 @@ function aliasCampaignNameClient(name) {
 }
 
 function renderCamino(data) {
-  // Pago = mujeres + sin-dato (campaigns currently target women, unattributed
-  // leads default to the paywall path).
-  // No Pago = hombres only (paused campaigns).
-  renderCaminoTree(data, ['mujer', 'sin-dato'], 'caminoPagoTable',   true);
-  renderCaminoTree(data, ['hombre'],            'caminoNoPagoTable', false);
+  // Camino routing logic:
+  //   - door=meta_form_directo or form_directo → ALWAYS Pago (paywall flow)
+  //   - door=quiz_largo/quiz_corto + sexo=hombre → No Pago (men's no-paywall flow)
+  //   - everything else → Pago (default women / sin-dato → paywall)
+  // Pass a predicate so the tree filter can use both door and sexo.
+  renderCaminoTree(data, (r) => isPagoPath(r),  'caminoPagoTable',   true);
+  renderCaminoTree(data, (r) => !isPagoPath(r), 'caminoNoPagoTable', false);
+}
+
+function isPagoPath(r) {
+  const door = (r.landing || '').toLowerCase();
+  const sexo = (r.sexo || '').toLowerCase();
+  // Paywall flows always Pago regardless of sexo
+  if (door === 'meta_form_directo' || door === 'form_directo' || door === 'formulario_directo') return true;
+  // Quiz flows: only hombre goes to No-Pago (no paywall for him)
+  if (sexo === 'hombre') return false;
+  // mujer + sin-dato → Pago
+  return true;
 }
 
 function caminoAggInit() {
@@ -482,11 +495,18 @@ function caminoAdd(agg, r) {
   agg.booked  += r.booked  || 0;
 }
 
-function renderCaminoTree(data, sexoFilter, tableId, isPago) {
+function renderCaminoTree(data, predicate, tableId, isPago) {
   const allRows = data.by_master_funnel || [];
-  const sexoSet = new Set(Array.isArray(sexoFilter) ? sexoFilter : [sexoFilter]);
-  // Filter to one or more sex buckets (Pago = mujer + sin-dato, NoPago = hombre)
-  const rows = allRows.filter(r => sexoSet.has((r.sexo || '').toLowerCase()));
+  // predicate is a fn(row) → boolean; rows passing it belong to this camino.
+  // Backward-compat: if predicate is array/string, treat as sexo filter.
+  let filterFn;
+  if (typeof predicate === 'function') {
+    filterFn = predicate;
+  } else {
+    const sexoSet = new Set(Array.isArray(predicate) ? predicate : [predicate]);
+    filterFn = (r) => sexoSet.has((r.sexo || '').toLowerCase());
+  }
+  const rows = allRows.filter(filterFn);
 
   // Build tree: Campaña → AdSet → Anuncio
   // Key by (channel + campaign) so Meta "¿Qué me pasa? G4U" and Google
