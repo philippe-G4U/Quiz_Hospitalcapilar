@@ -96,9 +96,9 @@ const PaywallOverlay = ({ ecp, nombre, onPay, onClose, onCallRequest, bonoPrice 
     return () => clearInterval(intv);
   }, []);
   const countdownDisplay = `${String(Math.floor(countdownSeconds / 3600)).padStart(2, '0')}:${String(Math.floor((countdownSeconds % 3600) / 60)).padStart(2, '0')}:${String(countdownSeconds % 60).padStart(2, '0')}`;
-  const dynamicTruth = `Los ${bonoPrice}€ se descuentan íntegros si inicias tratamiento.`;
-  const dynamicOtcTruth = `Un test capilar de ${bonoPrice}€ (descontable) puede ahorrarte años de productos que no funcionan.`;
-  const dynamicTrichometabolicTruth = `¿Cuánto llevas gastado en tratamientos que no han funcionado? El problema no es empezar uno más, es empezar sin conocer la causa real. Por eso, los ${bonoPrice}€ se descuentan íntegramente si decides iniciar el tratamiento pautado tras el diagnóstico con Hospital Capilar.`;
+  const dynamicTruth = 'Pagar tratamientos sin saber la causa es lo realmente caro. El test te dice qué necesitas (y qué no) en 30 minutos.';
+  const dynamicOtcTruth = 'Justo por eso. Un test médico te quita las dudas para no seguir gastando en lo que ya sabes que no funciona.';
+  const dynamicTrichometabolicTruth = 'El problema no es probar otro tratamiento. Es seguir probándolos sin conocer la causa. El diagnóstico te da la respuesta antes de gastar más.';
   const rawObjections = OBJECTIONS[ecp] || OBJECTIONS['Es Normal'];
   const objections = rawObjections.map(obj => ({
     ...obj,
