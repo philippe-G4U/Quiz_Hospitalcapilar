@@ -114,15 +114,18 @@ async function enrichOne(c, ghlHeaders, metaAttribution) {
   const currentLink = cfs.find(f => f.id === CONTACT_LINK_AGENDAR_CF)?.value || '';
   const currentPaywall = cfs.find(f => f.id === CONTACT_LINK_PAYWALL_CF)?.value || '';
   const currentUtmCampaign = cfs.find(f => f.id === CONTACT_UTM_CAMPAIGN_CF)?.value || '';
+  const currentUtmContent  = cfs.find(f => f.id === CONTACT_UTM_CONTENT_CF)?.value || '';
   const link = buildLink(c);
   const linkPaywall = buildPaywallLink(c);
 
   // Skip only if links are populated AND (no meta attribution to add OR
-  // utm_campaign already set). This way new attribution data still flows
-  // through even on idempotent re-runs.
+  // both utm_campaign AND utm_content already match the expected values).
+  // utm_content uses ad_name (not ad_id) so it joins to PostHog visits which
+  // get the ad_name from the form's redirect URL utm_content param.
   const linksOk = currentLink === link && currentPaywall === linkPaywall;
   const metaCamp = metaAttribution?.campaign_name || '';
-  const utmsOk = !metaAttribution || (metaCamp && currentUtmCampaign === metaCamp);
+  const metaContent = metaAttribution?.ad_name || metaAttribution?.ad_id || '';
+  const utmsOk = !metaAttribution || (metaCamp && currentUtmCampaign === metaCamp && currentUtmContent === metaContent);
   const dbg = {
     cf_count: cfs.length,
     cf_link_field: cfs.find(f => f.id === CONTACT_LINK_AGENDAR_CF) || null,
@@ -159,7 +162,7 @@ async function enrichOne(c, ghlHeaders, metaAttribution) {
       { id: CONTACT_UTM_SOURCE_CF,   field_value: 'facebook' },
       { id: CONTACT_UTM_MEDIUM_CF,   field_value: 'paid_social' },
       { id: CONTACT_UTM_CAMPAIGN_CF, field_value: metaAttribution.campaign_name || '' },
-      { id: CONTACT_UTM_CONTENT_CF,  field_value: metaAttribution.ad_id || '' },
+      { id: CONTACT_UTM_CONTENT_CF,  field_value: metaAttribution.ad_name || metaAttribution.ad_id || '' },
       { id: CONTACT_UTM_TERM_CF,     field_value: metaAttribution.adset_name || '' },
     );
   }
