@@ -239,6 +239,7 @@ const HospitalCapilarQuiz = ({ nicho = null, skipIntro = false }) => {
   const [funnelType] = useState(() => detectFunnelType());
   const [trafficSource] = useState(() => classifyTrafficSource());
   const ghlContactIdRef = useRef(null);
+  const ghlPromiseRef = useRef(null);
   const [paymentStep, setPaymentStep] = useState(null); // null | 'paying' | 'paid'
   const [openFaq, setOpenFaq] = useState(null);
   const [disqualified, setDisqualified] = useState(null); // null | { reason: 'cuero-cabelludo' | 'alopecia-rara' }
@@ -753,8 +754,12 @@ const HospitalCapilarQuiz = ({ nicho = null, skipIntro = false }) => {
       console.error('[Labels] Failed to generate agent message:', e);
     }
 
-    // Send to GHL, then save to Firestore with GHL status (async, non-blocking)
-    (async () => {
+    // Send to GHL, then save to Firestore with GHL status (async, non-blocking).
+    // Expose the promise so handleStartPayment can await it before calling Stripe —
+    // otherwise a fast-clicking user gets a checkout with empty contactId, and the
+    // webhook can't link the payment to the contact (now mitigated by webhook email
+    // fallback, but we still want the contactId in metadata when possible).
+    ghlPromiseRef.current = (async () => {
       let ghlResult = { status: 'pending' };
       try {
         ghlResult = await sendToGoHighLevel(finalAnswers, result, agentMessage, quizAnswersText);
@@ -768,6 +773,7 @@ const HospitalCapilarQuiz = ({ nicho = null, skipIntro = false }) => {
       } catch (e) {
         console.error('[Lead] Failed to save lead:', e);
       }
+      return ghlResult;
     })();
 
     // Track completion
@@ -1475,6 +1481,17 @@ const HospitalCapilarQuiz = ({ nicho = null, skipIntro = false }) => {
     const handleStartPayment = async () => {
       if (paymentStep === 'paying') return; // Prevent double-click
       setPaymentStep('paying');
+
+      // Wait up to 5s for the GHL contact creation to finish so we can pass contactId
+      // in Stripe metadata. If GHL is slow/failed, proceed with empty contactId — the
+      // webhook resolves it by email as fallback.
+      if (!ghlContactIdRef.current && ghlPromiseRef.current) {
+        await Promise.race([
+          ghlPromiseRef.current.catch(() => null),
+          new Promise(resolve => setTimeout(resolve, 5000)),
+        ]);
+      }
+
       try {
         const res = await safeFetch('/.netlify/functions/stripe-checkout', {
           method: 'POST',

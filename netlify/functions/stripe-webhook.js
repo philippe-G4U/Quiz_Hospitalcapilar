@@ -40,7 +40,19 @@ exports.handler = async (event) => {
       const session = stripeEvent.data.object;
       console.log('[Stripe Webhook] Payment completed:', session.id, 'email:', session.customer_email);
 
-      const contactId = session.metadata?.contactId || session.payment_intent?.metadata?.contactId;
+      let contactId = session.metadata?.contactId || session.payment_intent?.metadata?.contactId;
+
+      // Fallback: if checkout was created without contactId (race in quiz, or Meta→paywall
+      // direct flow where GHL contact is created async by GHL's Meta integration),
+      // resolve by email so we don't drop the payment update.
+      if (!contactId && ghlKey && session.customer_email) {
+        contactId = await findGHLContactIdByEmail(session.customer_email, ghlKey);
+        if (contactId) {
+          console.log('[Stripe Webhook] Resolved contactId via email fallback:', contactId);
+        } else {
+          console.log('[Stripe Webhook] No GHL contact for email:', session.customer_email);
+        }
+      }
 
       // Update GHL opportunity payment_status + get koibox_id for Koibox sync
       let koiboxId = null;
@@ -54,8 +66,9 @@ exports.handler = async (event) => {
         await updatePaymentTags(contactId, ghlKey);
       }
 
-      // Sync payment to Koibox (appointment notes + client notes)
-      await syncPaymentToKoibox(session.customer_email, koiboxId, session);
+      // Sync payment to Koibox (only when we have an appointment — client lookup
+      // by email is not reliable because Koibox /clientes/?email=X ignores the filter).
+      await syncPaymentToKoibox(koiboxId, session);
 
       // Update Firestore lead: paymentStatus → paid
       await updateLeadByEmail(session.customer_email, {
@@ -262,14 +275,22 @@ async function updatePaymentTags(contactId, apiKey) {
 }
 
 /**
- * Sync payment confirmation to Koibox:
- * - If appointment exists (koiboxId): update appointment notes
- * - Search client by email: update client notes
+ * Sync payment confirmation to Koibox.
+ * Requires a koiboxId (appointment id). The appointment carries the cliente.id, so we can
+ * update both appointment notes AND client notes with one reliable lookup.
+ *
+ * We deliberately do NOT search Koibox /clientes/?email=X — that endpoint silently ignores
+ * the filter and returns clients ordered by recency, which previously caused payment notes
+ * to be attached to the wrong client.
  */
-async function syncPaymentToKoibox(email, koiboxId, session) {
+async function syncPaymentToKoibox(koiboxId, session) {
   const koiboxKey = process.env.KOIBOX_API_KEY;
   if (!koiboxKey) {
     console.log('[Stripe→Koibox] No KOIBOX_API_KEY, skipping sync');
+    return;
+  }
+  if (!koiboxId) {
+    console.log('[Stripe→Koibox] No koiboxId on opportunity yet — skipping (will sync once appointment is created)');
     return;
   }
 
@@ -281,49 +302,79 @@ async function syncPaymentToKoibox(email, koiboxId, session) {
   const amount = ((session.amount_total || 0) / 100).toFixed(2);
   const paymentNote = `✅ TEST CAPILAR PAGADO (${amount}€) — Stripe: ${session.id} — ${new Date().toISOString()}`;
 
-  // 1. Update appointment notes if koibox appointment exists
-  if (koiboxId) {
+  let appt;
+  try {
+    const getRes = await fetch(`${KOIBOX_BASE}/agenda/${koiboxId}/`, { headers: koiboxHeaders });
+    if (!getRes.ok) {
+      console.log('[Stripe→Koibox] Appointment GET failed:', getRes.status);
+      return;
+    }
+    appt = await getRes.json();
+  } catch (err) {
+    console.log('[Stripe→Koibox] Appointment GET error:', err.message);
+    return;
+  }
+
+  // Update appointment notes
+  try {
+    const existingNotes = appt.notas || '';
+    await fetch(`${KOIBOX_BASE}/agenda/${koiboxId}/`, {
+      method: 'PATCH',
+      headers: koiboxHeaders,
+      body: JSON.stringify({ notas: `${existingNotes}\n${paymentNote}`.trim() }),
+    });
+    console.log('[Stripe→Koibox] Appointment notes updated:', koiboxId);
+  } catch (err) {
+    console.log('[Stripe→Koibox] Appointment update failed:', err.message);
+  }
+
+  // Update client notes using cliente.id from the appointment (reliable — no broken filter)
+  const clienteId = appt.cliente?.id;
+  if (clienteId) {
     try {
-      // GET current appointment to preserve existing notes
-      const getRes = await fetch(`${KOIBOX_BASE}/agenda/${koiboxId}/`, { headers: koiboxHeaders });
-      if (getRes.ok) {
-        const appt = await getRes.json();
-        const existingNotes = appt.notas || '';
-        await fetch(`${KOIBOX_BASE}/agenda/${koiboxId}/`, {
+      const clientRes = await fetch(`${KOIBOX_BASE}/clientes/${clienteId}/`, { headers: koiboxHeaders });
+      if (clientRes.ok) {
+        const client = await clientRes.json();
+        const existingNotes = client.notas || '';
+        await fetch(`${KOIBOX_BASE}/clientes/${clienteId}/`, {
           method: 'PATCH',
           headers: koiboxHeaders,
           body: JSON.stringify({ notas: `${existingNotes}\n${paymentNote}`.trim() }),
         });
-        console.log('[Stripe→Koibox] Appointment notes updated:', koiboxId);
-      }
-    } catch (err) {
-      console.log('[Stripe→Koibox] Appointment update failed:', err.message);
-    }
-  }
-
-  // 2. Update client notes
-  if (email) {
-    try {
-      const searchRes = await fetch(
-        `${KOIBOX_BASE}/clientes/?email=${encodeURIComponent(email)}`,
-        { headers: koiboxHeaders }
-      );
-      if (searchRes.ok) {
-        const data = await searchRes.json();
-        if (data.count > 0) {
-          const client = data.results[0];
-          const existingNotes = client.notas || '';
-          await fetch(`${KOIBOX_BASE}/clientes/${client.id}/`, {
-            method: 'PATCH',
-            headers: koiboxHeaders,
-            body: JSON.stringify({ notas: `${existingNotes}\n${paymentNote}`.trim() }),
-          });
-          console.log('[Stripe→Koibox] Client notes updated:', client.id);
-        }
+        console.log('[Stripe→Koibox] Client notes updated:', clienteId);
       }
     } catch (err) {
       console.log('[Stripe→Koibox] Client update failed:', err.message);
     }
+  }
+}
+
+/**
+ * Resolve a GHL contactId from email when Stripe metadata didn't carry one.
+ * Returns null if no match.
+ */
+async function findGHLContactIdByEmail(email, apiKey) {
+  const locationId = process.env.VITE_GHL_LOCATION_ID || 'U4SBRYIlQtGBDHLFwEUf';
+  try {
+    const res = await fetch(`${GHL_BASE}/contacts/search`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Version: '2021-07-28',
+      },
+      body: JSON.stringify({
+        locationId,
+        pageLimit: 1,
+        filters: [{ field: 'email', operator: 'eq', value: email }],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.contacts?.[0]?.id || null;
+  } catch (err) {
+    console.log('[Stripe Webhook] findGHLContactIdByEmail failed:', err.message);
+    return null;
   }
 }
 
