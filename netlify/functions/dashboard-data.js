@@ -461,23 +461,34 @@ async function fetchGhlOppsWithContacts(startDate, endDate) {
   const inRange = [...oppByContact.values()];
   const contactIds = [...oppByContact.keys()];
   const contactById = {};
-  // Concurrency 3 + 3-attempt retry on 429/5xx. Earlier we lost ~7 contacts
-  // per run to silent rate-limit failures, which dropped quiz_largo leads.
-  const concurrency = 3;
+  // Concurrency 8 + 3-attempt retry on 429/5xx. With ~100 contacts and
+  // ~250ms per call we need higher concurrency to stay under Netlify's
+  // 30s hard timeout. GHL rate limit is ~50 req/s so 8 parallel is safe.
+  // Per-request 4s timeout + retry handles slow tails.
+  const concurrency = 8;
   let idx = 0;
   let lookupFails = 0;
+  async function fetchWithTimeout(url, ms = 4000) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    try {
+      return await fetch(url, { headers, signal: ctrl.signal });
+    } finally {
+      clearTimeout(t);
+    }
+  }
   async function fetchContactWithRetry(cid) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const r = await fetch(`${GHL_BASE}/contacts/${cid}`, { headers });
+        const r = await fetchWithTimeout(`${GHL_BASE}/contacts/${cid}`);
         if (r.ok) return (await r.json()).contact || {};
         if (r.status === 429 || r.status >= 500) {
-          await new Promise(res => setTimeout(res, 500 * (attempt + 1)));
+          await new Promise(res => setTimeout(res, 400 * (attempt + 1)));
           continue;
         }
         return null; // 4xx other than 429: don't retry
       } catch (_) {
-        await new Promise(res => setTimeout(res, 500 * (attempt + 1)));
+        await new Promise(res => setTimeout(res, 400 * (attempt + 1)));
       }
     }
     return null;
