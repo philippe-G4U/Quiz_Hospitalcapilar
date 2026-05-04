@@ -592,12 +592,17 @@ async function fetchGhlOppsWithContacts(startDate, endDate) {
     const channelMap = { meta: 'Meta', facebook: 'Meta', instagram: 'Meta', google: 'Google', google_ads: 'Google', seo: 'SEO', tiktok: 'TikTok', direct: 'Directo', directo: 'Directo' };
     const channel = channelMap[utmSource] || (utmSource === 'sin-dato' ? 'Sin dato' : utmSource);
 
-    // Derive payment model from funnel + sexo (mirrors sync-ghl-posthog derivePaymentVariant)
+    // Derive payment model from funnel + sexo (mirrors sync-ghl-posthog derivePaymentVariant).
+    // Paywall flows (form_meta_directo, form_directo) always go through Stripe
+    // regardless of sexo — they're hardcoded to the bono amount in the paywall.
+    // Quiz flows split by sexo: hombre → no-pago booking, mujer → paywall.
     let pago;
-    if ((funnelType || '').toLowerCase() === 'asesores') pago = 'clinica';
-    else if (sexo === 'hombre') pago = '0';
-    else if (sexo === 'mujer') pago = '125';
-    else pago = 'unknown';
+    const ft = (funnelType || '').toLowerCase();
+    if (ft === 'asesores')                                  pago = 'clinica';
+    else if (ft === 'form_meta_directo' || ft === 'form_directo') pago = '125';
+    else if (sexo === 'hombre')                             pago = '0';
+    else if (sexo === 'mujer')                              pago = '125';
+    else                                                    pago = 'unknown';
 
     const tags = Array.isArray(contact.tags) ? contact.tags : [];
     const stage = opp.pipelineStageId;

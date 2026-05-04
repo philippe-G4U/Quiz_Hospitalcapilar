@@ -477,7 +477,7 @@ function isPagoPath(r) {
   const door = (r.landing || '').toLowerCase();
   const sexo = (r.sexo || '').toLowerCase();
   // Paywall flows always Pago regardless of sexo
-  if (door === 'meta_form_directo' || door === 'form_directo' || door === 'formulario_directo') return true;
+  if (door === 'form_meta_directo' || door === 'form_directo' || door === 'formulario_directo') return true;
   // Quiz flows: only hombre goes to No-Pago (no paywall for him)
   if (sexo === 'hombre') return false;
   // mujer + sin-dato → Pago
