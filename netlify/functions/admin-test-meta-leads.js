@@ -51,47 +51,65 @@ exports.handler = async (event) => {
     result.checks.token_permissions = { ok: false, error: e.message };
   }
 
-  // 2) Can we list G4U lead forms via the ad account?
+  // 2) List Pages this token can access (lead forms live on Pages, not Ad Accounts)
+  let pageIds = [];
   try {
-    const url = `${META_GRAPH}/${account}/leadgen_forms?fields=id,name,status,page&limit=50&access_token=${token}`;
-    const r = await fetch(url);
+    const r = await fetch(`${META_GRAPH}/me/accounts?fields=id,name&access_token=${token}`);
     const d = await r.json();
     if (!r.ok) {
-      result.checks.list_lead_forms = { ok: false, status: r.status, error: d.error?.message || 'unknown' };
+      result.checks.list_pages = { ok: false, status: r.status, error: d.error?.message || 'unknown' };
     } else {
-      const forms = d.data || [];
-      result.checks.list_lead_forms = {
+      pageIds = (d.data || []).map(p => p.id);
+      result.checks.list_pages = {
         ok: true,
-        total: forms.length,
-        sample: forms.slice(0, 5).map(f => ({ id: f.id, name: f.name, status: f.status })),
+        total: (d.data || []).length,
+        sample: (d.data || []).slice(0, 5).map(p => ({ id: p.id, name: p.name })),
       };
     }
   } catch (e) {
-    result.checks.list_lead_forms = { ok: false, error: e.message };
+    result.checks.list_pages = { ok: false, error: e.message };
   }
 
-  // 3) Try to fetch a single lead from the first form (if we got any).
-  // This is the actual permission we need: leads_retrieval on the page that owns the form.
-  const firstFormId = result.checks.list_lead_forms?.sample?.[0]?.id;
-  if (firstFormId) {
+  // 3) For each Page, list its lead forms
+  const allForms = [];
+  for (const pageId of pageIds) {
     try {
-      const url = `${META_GRAPH}/${firstFormId}/leads?fields=id,created_time,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,form_id,field_data&limit=3&access_token=${token}`;
+      const url = `${META_GRAPH}/${pageId}/leadgen_forms?fields=id,name,status,created_time&limit=100&access_token=${token}`;
+      const r = await fetch(url);
+      const d = await r.json();
+      if (r.ok) {
+        for (const f of (d.data || [])) allForms.push({ ...f, page_id: pageId });
+      }
+    } catch (e) { /* skip */ }
+  }
+  result.checks.list_lead_forms = {
+    ok: allForms.length > 0,
+    total: allForms.length,
+    sample: allForms.slice(0, 8).map(f => ({ id: f.id, name: f.name, status: f.status, page_id: f.page_id })),
+  };
+
+  // 4) Try to fetch leads from the first form
+  if (allForms.length > 0) {
+    const firstForm = allForms[0];
+    try {
+      const url = `${META_GRAPH}/${firstForm.id}/leads?fields=id,created_time,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,form_id,field_data&limit=3&access_token=${token}`;
       const r = await fetch(url);
       const d = await r.json();
       if (!r.ok) {
         result.checks.fetch_leads_from_form = {
           ok: false,
-          form_id: firstFormId,
+          form_id: firstForm.id,
+          form_name: firstForm.name,
           status: r.status,
           error: d.error?.message || 'unknown',
           error_code: d.error?.code,
-          error_subcode: d.error?.error_subcode,
         };
       } else {
         const leads = d.data || [];
         result.checks.fetch_leads_from_form = {
           ok: true,
-          form_id: firstFormId,
+          form_id: firstForm.id,
+          form_name: firstForm.name,
           total_returned: leads.length,
           sample: leads.slice(0, 2).map(l => ({
             id: l.id,
@@ -108,19 +126,19 @@ exports.handler = async (event) => {
     }
   }
 
-  // 4) Final verdict
+  // 5) Final verdict
   const tp = result.checks.token_permissions;
+  const lp = result.checks.list_pages;
   const lf = result.checks.list_lead_forms;
   const fl = result.checks.fetch_leads_from_form;
   result.verdict = {
     can_implement_enrich:
-      tp?.ok && (tp.has_leads_retrieval || fl?.ok) && lf?.ok && fl?.ok,
+      tp?.has_leads_retrieval && lp?.ok && lf?.ok && fl?.ok,
     missing: [
       !tp?.has_leads_retrieval && 'leads_retrieval permission',
-      !tp?.has_ads_read && 'ads_read permission',
-      !tp?.has_pages_read_engagement && 'pages_read_engagement permission',
-      !lf?.ok && 'access to leadgen_forms endpoint',
-      !fl?.ok && 'access to /leads endpoint',
+      !lp?.ok && 'pages_show_list permission (cannot list pages)',
+      !lf?.ok && 'lead forms (no forms found across pages)',
+      !fl?.ok && 'leads_retrieval on the page that owns the forms',
     ].filter(Boolean),
   };
 
