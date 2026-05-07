@@ -1,0 +1,11 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import DiagnosticQuizIsland from '../components/DiagnosticQuizIsland.jsx';
+---
+
+<BaseLayout
+  title="Diagnóstico capilar online — Hospital Capilar"
+  description="Test capilar online en 5 preguntas. Descubre qué necesita tu pelo y recibe tu pre-diagnóstico al momento. Confirmación con un médico de Hospital Capilar."
+>
+  <DiagnosticQuizIsland client:only="react" nicho="quiz-hospitalcapilar" />
+</BaseLayout>

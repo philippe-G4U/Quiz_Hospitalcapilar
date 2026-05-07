@@ -295,4 +295,43 @@ export const NICHOS = {
     tags: ['nicho-la-inversion'],
   },
 
+  // ─── Quiz Hospital Capilar — Generic landing post-Meta-form ──
+  // Used by /quiz-hospitalcapilar/ — receives leads from Meta lead form.
+  // Branches by sex inside the quiz: mujer → CRT/HRT + videollamada GHL,
+  // hombre → asesoría presencial Koibox.
+  'quiz-hospitalcapilar': {
+    slug: 'quiz-hospitalcapilar',
+    door: 'landing_quiz_hc',
+    badge: 'Diagnóstico capilar online',
+    headline: 'Descubre qué necesita tu pelo. Sin promesas vacías.',
+    subheadline: 'Test capilar online en 5 preguntas. Te decimos qué necesita tu pelo y por qué — con datos, no con humo. Confirmación con un médico de Hospital Capilar.',
+    ctaQuiz: 'Quiero recuperar mi pelo',
+    ctaForm: 'QUIERO RECUPERAR MI PELO',
+    ecp: '¿Qué Me Pasa?',
+    stats: [
+      { value: '40%', label: 'de mujeres sufren caída capilar' },
+      { value: '5', label: 'preguntas para tu pre-diagnóstico' },
+      { value: 'Inmediato', label: 'recibes tu resultado al momento' },
+    ],
+    painPoints: [
+      '¿Notas más pelo del que querrías al peinarte o en la ducha?',
+      '¿Llevas meses probando productos sin resultado claro?',
+      '¿Te dijeron que era hormonal o normal pero nadie te lo confirmó?',
+      '¿Quieres saber qué necesita tu pelo realmente?',
+    ],
+    testimonials: [
+      { name: 'Laura M.', age: 52, text: 'Desde la menopausia se me caía a puñados. Mi médica decía que era normal. En Hospital Capilar cruzaron mi perfil hormonal con tricoscopía y encontraron la causa real.', stars: 5 },
+      { name: 'Patricia G.', age: 48, text: 'Llevaba un año con caída brutal. Me dijeron que era por la edad. En HC descubrieron un desbalance hormonal tratable. Por fin alguien me escuchó.', stars: 5 },
+    ],
+    videoTestimonial: YOLANDA_VIDEO_TESTIMONIAL,
+    solution: 'Un test capilar online te orienta sobre qué protocolo necesitas. La confirmación se hace con un médico de Hospital Capilar mediante un Examen Analítico Tricometabólico — el único que combina perfil hormonal + tricoscopía + valoración médica.',
+    faqs: [
+      { q: '¿Qué es el Examen Analítico Tricometabólico?', a: 'Es nuestro test capilar integral: combina analítica de sangre, análisis del propio plasma, tricoscopía digital y valoración médica. Identifica la causa real de tu caída en 30 minutos.' },
+      { q: '¿Qué pasa después del quiz online?', a: 'Recibes una pre-recomendación basada en tus respuestas. Para confirmarla, agendas una videollamada gratuita con una asesora que te explica el siguiente paso.' },
+      { q: '¿Tiene coste el test online?', a: 'No. El test online y la asesoría posterior por videollamada son completamente gratuitos. Solo se cobra el Examen Analítico Tricometabólico cuando decides hacerlo.' },
+      { q: '¿Me van a intentar vender algo?', a: 'No. Nuestros médicos diagnostican y te explican tus opciones. Si no necesitas tratamiento, te lo decimos. Sin presión comercial.' },
+    ],
+    tags: ['nicho-quiz-hc'],
+  },
+
 };
