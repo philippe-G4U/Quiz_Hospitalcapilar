@@ -113,17 +113,20 @@ https://diagnostico.hospitalcapilar.com/quiz-hospitalcapilar/?v={{form.sexo}}&ca
 ### Pipeline Leads HC
 
 ```
-fbed92b1-... | New Lead
-f0b2e24c-... | Contacted
-2eac8c05-... | Paid
-f9e5c1cf-... | Booked
-24956338-... | Reminder sent
-71a5cc36-... | Attended
-1cd97c60-... | Won
-437d0663-... | No-show
-c961b576-... | Lost/Cancelled
-28227d12-... | Abandoned
+1. New Lead          fbed92b1-...   ← lead form submit
+2. Contacted         f0b2e24c-...   ← asesora primer contacto WhatsApp
+3. Videocall booked  <TBD>          ← videollamada agendada (Calendario HC Videollamadas)
+4. Paid              2eac8c05-...   ← pagó 125€ Stripe online
+5. Booked            f9e5c1cf-...   ← cita presencial agendada en Koibox
+6. Reminder sent     24956338-...   ← recordatorio 24h antes
+7. Attended          71a5cc36-...   ← vino a la cita en clínica
+8. Won               1cd97c60-...   ← compró tratamiento
+9. No-show           437d0663-...   ← no vino a la cita
+10. Lost/Cancelled   c961b576-...   ← cancelado
+11. Abandoned        28227d12-...   ← sin respuesta
 ```
+
+**Nota:** la stage `Videocall booked` debe crearse manualmente en GHL UI (la API key no tiene permiso de escritura sobre pipelines). Una vez creada, actualizar este doc con su ID.
 
 ---
 
@@ -239,11 +242,12 @@ SI flag médico activo → marca al asesor + nota visible
 | 6 | Quiz iniciado | PostHog `diagnostic_quiz_started` | Start rate |
 | 7 | Quiz completado | PostHog `diagnostic_quiz_completed` + Firestore | Completion rate |
 | 8 | CTA cita pulsado | PostHog `diagnostic_quiz_cta_clicked` | Click rate calendar vs WhatsApp |
-| 9 | Videollamada agendada | GHL Calendar (kZbXjtt6kmjj1phXdoqP) | Booking rate |
-| 10 | Videollamada atendida | GHL Pipeline → "Attended" | Show-up rate |
-| 11 | Pago 125€ Stripe | Stripe webhook → GHL Pipeline "Paid" | Conversion rate |
-| 12 | Cita Koibox | Koibox API → Firestore `bookings` | Booking físico |
-| 13 | Tratamiento vendido | GHL Pipeline "Won" + Salesforce | Revenue / venta |
+| 9 | Videollamada agendada | GHL Calendar (kZbXjtt6kmjj1phXdoqP) + Pipeline `Videocall booked` | Booking rate |
+| 10 | Videollamada atendida | GHL (asesora actualiza manualmente o automation) | Show-up rate |
+| 11 | Pago 125€ Stripe | Stripe webhook → GHL Pipeline `Paid` | Conversion rate |
+| 12 | Cita Koibox presencial | Koibox API → Firestore `bookings` + Pipeline `Booked` | Booking físico |
+| 13 | Cita atendida | GHL Pipeline `Attended` | Show-up clínica |
+| 14 | Tratamiento vendido | GHL Pipeline `Won` + Salesforce | Revenue / venta |
 
 ### 7.2 Eventos PostHog actuales (implementados)
 
