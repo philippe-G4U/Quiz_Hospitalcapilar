@@ -2,7 +2,17 @@
 
 **Stack:** Astro SSR + React 19 + Firestore + GHL + Stripe + Koibox + PostHog
 **Lanzamiento:** 2026-05-11
-**Owner técnico:** Philippe (Growth4U)
+
+## Ownership
+
+| Área | Owner | Responsabilidad |
+|---|---|---|
+| Funnel general / código quiz | Philippe (Growth4U) | Arquitectura, deploy, código |
+| Workflows GHL & automations | **Ramiro (Growth4U)** | Triggers, pipelines, sequences |
+| Validación técnica + Dashboard | **Martin (Growth4U)** | QA E2E, métricas, BI |
+| Meta Ads operativa | Miguel (HC) | Campañas, lead forms, Pixel |
+| Asesoría comercial | Noemí + hermano de Óscar (HC) | Videollamadas, WhatsApp, cierre |
+| Dirección médica | Dr. responsable HC | Validación clínica protocolos |
 
 ---
 
@@ -334,14 +344,60 @@ Sync existente Koibox → Firestore guarda en `bookings`. Cross-reference contra
 
 ---
 
-## 8. Lo que falta para 100% operativo
+## 8. Estado del proyecto
 
-| Tarea | Owner | Prioridad |
+### ✅ DONE (en producción)
+
+| Item | Owner |
+|---|---|
+| Quiz `/quiz-hospitalcapilar/` con rama mujer (5 preguntas) y hombre (3 preguntas) | Philippe |
+| Scoring CRT/HRT con lógica clínica validada | Philippe + Dr. HC |
+| Pantalla resultado mujer con bloque Hair Pro + disclaimer Tricometabólico | Philippe |
+| CTA mujer → Calendario HC Videollamadas con prefill | Philippe |
+| CTA secundario WhatsApp en mujer y hombre | Philippe |
+| CTA hombre → `/agendar` Koibox existente con `tipo=asesoria` | Philippe |
+| Custom fields GHL `Sexo Lead Form` + `Preocupacion caida` | Philippe |
+| URL Meta thank-you con macros `{{form.sexo}}` etc. | Miguel |
+| Mapping Meta form → GHL contact via integración nativa | Miguel |
+| Tracking PostHog: `diagnostic_quiz_started/completed/cta_clicked` | Philippe |
+| UTM propagation Meta → quiz → Firestore | Philippe |
+| Deploy a producción (`diagnostico.hospitalcapilar.com/quiz-hospitalcapilar/`) | Philippe |
+
+### 🟡 IN PROGRESS (esta semana)
+
+| Item | Owner | Bloqueante? |
 |---|---|---|
-| Test E2E con lead real Meta → quiz → calendar | Miguel + Philippe | 🔴 antes de campaña real |
-| Conectar GHL custom field submit del quiz (protocolo CRT/HRT) | Philippe | 🟡 esta semana |
-| ~~Embed Koibox calendar en rama hombre~~ → reusa `/agendar?tipo=asesoria` existente ✅ | — | DONE |
-| Descomentar Murcia + Pontevedra en `AgendarPage.jsx` CLINICS cuando estén operativas | Philippe | 🟡 esta semana |
-| Webhook backup Meta → backend (para no perder leads que no clican thank-you) | Philippe | 🟢 próximo sprint |
-| Dashboard funnel completo (sección `/quiz-hc`) | Philippe | 🟢 próximo sprint |
-| Añadir eventos PostHog de granularidad por pregunta | Philippe | 🟢 próximo sprint |
+| **Crear stage `Videocall booked` en pipeline GHL UI** | **Ramiro** | 🔴 Sí — antes de campaña |
+| **Workflow GHL: appointment booked → mover a `Videocall booked`** | **Ramiro** | 🟡 Recomendado |
+| **Workflow GHL: appointment attended → mover a stage adecuada** | **Ramiro** | 🟡 Recomendado |
+| **Test E2E con lead real Meta → quiz → calendar** | Miguel envía + **Martin valida** | 🔴 Sí — antes de campaña |
+| Descomentar Murcia + Pontevedra en `AgendarPage.jsx` cuando clínicas estén operativas | Philippe | 🟢 No bloquea Madrid |
+
+### 🟢 PENDING (próximo sprint)
+
+| Item | Owner |
+|---|---|
+| Conectar GHL custom field submit del quiz (protocolo CRT/HRT → campo nuevo) | Philippe |
+| Webhook backup Meta → backend (no perder leads que no clican thank-you, ~30-40%) | Philippe |
+| **Dashboard funnel completo en `/quiz-hc`** | **Martin** |
+| **Validación métricas end-to-end (Meta → PostHog → GHL → Stripe → Koibox)** | **Martin** |
+| Eventos PostHog granulares: `diagnostic_quiz_question_answered`, `diagnostic_quiz_landing_viewed` | Philippe |
+| Webhook GHL appointment → PostHog `ghl_appointment_booked` | Philippe + Ramiro |
+| Webhook Stripe → PostHog `stripe_payment_completed` con `ghl_contact_id` en metadata | Philippe |
+| Sync Koibox appointment → PostHog `koibox_appointment_created` | Philippe |
+
+### 🚦 Checklist pre-campaña (antes de gastar €1.800 en Meta)
+
+- [ ] **Ramiro:** stage `Videocall booked` creada en pipeline + workflow asociado
+- [ ] **Miguel:** lead form Meta apunta a URL correcta + macros `{{form.sexo/caida/ciudad}}` resueltos
+- [ ] **Miguel envía lead de prueba real**
+- [ ] **Martin valida E2E:**
+  - [ ] GHL contact creado con `Sexo Lead Form`, `Preocupacion caida`, `City` mapeados
+  - [ ] Lead llega a `/quiz-hospitalcapilar/?v=...` con todos los params
+  - [ ] Firestore `quiz_leads` guarda el lead con UTMs intactos
+  - [ ] Quiz completado dispara PostHog event correcto
+  - [ ] CTA mujer abre calendar con `first_name/email/phone` prerellenados
+  - [ ] Booking en calendar crea evento en Gmail de Noemí
+  - [ ] CTA hombre redirige a `/agendar` con prefill correcto
+- [ ] Si todos los checks pasan → green light para campaña real
+- [ ] Si alguno falla → Philippe arregla + Martin re-valida
