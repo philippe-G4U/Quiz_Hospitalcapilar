@@ -480,9 +480,21 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
   // ==========================================
   if (phase === 'results' && sexo === 'hombre') {
     const firstName = (prefill.nombre || '').split(' ')[0];
+    // Redirect to existing /agendar Koibox-backed booking page.
+    // tipo=asesoria bypasses the bono gate (which is women-only).
+    const agendarParams = new URLSearchParams();
+    if (prefill.nombre) agendarParams.set('nombre', prefill.nombre);
+    if (prefill.email) agendarParams.set('email', prefill.email);
+    if (prefill.telefono) agendarParams.set('phone', prefill.telefono);
+    if (prefill.ciudad) agendarParams.set('clinica', prefill.ciudad);
+    if (prefill.leadId) agendarParams.set('contactId', prefill.leadId);
+    agendarParams.set('tipo', 'asesoria');
+    const agendarUrl = `/agendar?${agendarParams.toString()}`;
+
+    // Secondary CTA — WhatsApp (para quien prefiere no agendar online)
     const WA_PHONE = '34623457218';
     const waText = encodeURIComponent(
-      `Hola, soy ${firstName || 'un paciente'}. Acabo de completar el diagnóstico online en Hospital Capilar. Me gustaría agendar mi asesoría presencial gratuita.`
+      `Hola, soy ${firstName || 'un paciente'}. Acabo de completar el diagnóstico online en Hospital Capilar. Quiero agendar mi asesoría presencial gratuita.`
     );
     const waUrl = `https://wa.me/${WA_PHONE}?text=${waText}`;
 
@@ -531,20 +543,34 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
           <div className="bg-[#2C3E50] rounded-2xl p-6 text-white text-center">
             <h3 className="text-xl font-extrabold mb-2">Agenda tu cita en clínica</h3>
             <p className="text-sm text-gray-300 mb-5">
-              Elige la clínica más cercana y un horario que te venga bien. Te confirmamos por WhatsApp.
+              Elige la clínica más cercana y un horario que te venga bien.
             </p>
-            {/* TODO post-deploy: replace WhatsApp CTA with Koibox calendar embed filtered by city */}
+            <a
+              href={agendarUrl}
+              onClick={() => analytics.trackEvent('diagnostic_quiz_cta_clicked', { sexo: 'hombre', channel: 'koibox_agendar' })}
+              className="inline-flex items-center gap-2 px-7 py-4 rounded-xl bg-[#4CA994] hover:bg-[#3d9583] text-white font-bold text-base shadow-lg transition-all w-full justify-center"
+            >
+              Agenda tu asesoría presencial gratuita
+              <ArrowRight size={20} />
+            </a>
+            <p className="text-xs text-gray-400 mt-3 mb-4">100% gratuita · Sin compromiso · Madrid · Murcia · Pontevedra</p>
+
+            <div className="flex items-center gap-3 my-4">
+              <div className="flex-1 h-px bg-white/20" />
+              <span className="text-xs text-gray-400 uppercase tracking-wider">o</span>
+              <div className="flex-1 h-px bg-white/20" />
+            </div>
+
             <a
               href={waUrl}
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => analytics.trackEvent('diagnostic_quiz_cta_clicked', { sexo: 'hombre', channel: 'whatsapp' })}
-              className="inline-flex items-center gap-2 px-7 py-4 rounded-xl bg-[#4CA994] hover:bg-[#3d9583] text-white font-bold text-base shadow-lg transition-all w-full justify-center"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/20 text-white font-semibold text-sm transition-all w-full justify-center"
             >
-              Quiero recuperar mi pelo
-              <ArrowRight size={20} />
+              <WhatsAppIcon size={18} className="text-white" />
+              Hablar por WhatsApp con una asesora
             </a>
-            <p className="text-xs text-gray-400 mt-3">100% gratuita · Sin compromiso · Madrid · Murcia · Pontevedra</p>
           </div>
         </div>
       </div>

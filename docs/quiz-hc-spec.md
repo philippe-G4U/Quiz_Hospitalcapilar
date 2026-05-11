@@ -213,7 +213,11 @@ SI flag médico activo → marca al asesor + nota visible
 
 ### Pantalla resultado hombre
 
-"Asesoría presencial gratuita con nuestro equipo médico" + CTA WhatsApp (Koibox embed por ciudad pendiente).
+"Asesoría presencial gratuita con nuestro equipo médico":
+- **CTA primario:** "Agenda tu asesoría presencial gratuita" → redirige a `/agendar` (Koibox-backed) con `tipo=asesoria` (bypass del bono gate), `clinica` desde el Meta form, y nombre/email/phone/contactId prerellenados.
+- **CTA secundario:** "Hablar por WhatsApp con una asesora" → wa.me/34623457218.
+
+⚠ Actualmente solo Madrid está habilitada en `AgendarPage.jsx`. Murcia y Pontevedra están comentadas para piloto — descomentar cuando estén operativas.
 
 ---
 
@@ -336,7 +340,8 @@ Sync existente Koibox → Firestore guarda en `bookings`. Cross-reference contra
 |---|---|---|
 | Test E2E con lead real Meta → quiz → calendar | Miguel + Philippe | 🔴 antes de campaña real |
 | Conectar GHL custom field submit del quiz (protocolo CRT/HRT) | Philippe | 🟡 esta semana |
-| Embed Koibox calendar en rama hombre filtrado por ciudad | Philippe | 🟡 esta semana |
+| ~~Embed Koibox calendar en rama hombre~~ → reusa `/agendar?tipo=asesoria` existente ✅ | — | DONE |
+| Descomentar Murcia + Pontevedra en `AgendarPage.jsx` CLINICS cuando estén operativas | Philippe | 🟡 esta semana |
 | Webhook backup Meta → backend (para no perder leads que no clican thank-you) | Philippe | 🟢 próximo sprint |
 | Dashboard funnel completo (sección `/quiz-hc`) | Philippe | 🟢 próximo sprint |
 | Añadir eventos PostHog de granularidad por pregunta | Philippe | 🟢 próximo sprint |
