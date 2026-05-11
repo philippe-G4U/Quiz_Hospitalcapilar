@@ -7,12 +7,14 @@
 
 | Área | Owner | Responsabilidad |
 |---|---|---|
-| Funnel general / código quiz | Philippe (Growth4U) | Arquitectura, deploy, código |
-| Workflows GHL & automations | **Ramiro (Growth4U)** | Triggers, pipelines, sequences |
-| Validación técnica + Dashboard | **Martin (Growth4U)** | QA E2E, métricas, BI |
+| **Funnel + código quiz + integraciones** | **Ramiro + Martin (Growth4U)** | Arquitectura, deploy, mantenimiento código |
+| **Workflows GHL & automations** | **Ramiro (Growth4U)** | Triggers, pipelines, sequences, custom fields |
+| **Validación técnica + Dashboard** | **Martin (Growth4U)** | QA E2E, métricas, BI, monitoring |
+| **Consultoría estratégica** | **Philippe (Growth4U)** | Dirección estratégica, decisiones de funnel, escalado |
 | Meta Ads operativa | Miguel (HC) | Campañas, lead forms, Pixel |
 | Asesoría comercial | Noemí + hermano de Óscar (HC) | Videollamadas, WhatsApp, cierre |
 | Dirección médica | Dr. responsable HC | Validación clínica protocolos |
+| Dirección general HC | Óscar + María (HC) | Visión negocio, presupuesto, recursos |
 
 ---
 
@@ -348,20 +350,20 @@ Sync existente Koibox → Firestore guarda en `bookings`. Cross-reference contra
 
 ### ✅ DONE (en producción)
 
-| Item | Owner |
-|---|---|
-| Quiz `/quiz-hospitalcapilar/` con rama mujer (5 preguntas) y hombre (3 preguntas) | Philippe |
-| Scoring CRT/HRT con lógica clínica validada | Philippe + Dr. HC |
-| Pantalla resultado mujer con bloque Hair Pro + disclaimer Tricometabólico | Philippe |
-| CTA mujer → Calendario HC Videollamadas con prefill | Philippe |
-| CTA secundario WhatsApp en mujer y hombre | Philippe |
-| CTA hombre → `/agendar` Koibox existente con `tipo=asesoria` | Philippe |
-| Custom fields GHL `Sexo Lead Form` + `Preocupacion caida` | Philippe |
-| URL Meta thank-you con macros `{{form.sexo}}` etc. | Miguel |
-| Mapping Meta form → GHL contact via integración nativa | Miguel |
-| Tracking PostHog: `diagnostic_quiz_started/completed/cta_clicked` | Philippe |
-| UTM propagation Meta → quiz → Firestore | Philippe |
-| Deploy a producción (`diagnostico.hospitalcapilar.com/quiz-hospitalcapilar/`) | Philippe |
+| Item | Construido por (histórico) | Owner mantenimiento |
+|---|---|---|
+| Quiz `/quiz-hospitalcapilar/` con rama mujer (5 preguntas) y hombre (3 preguntas) | Philippe | Ramiro + Martin |
+| Scoring CRT/HRT con lógica clínica validada | Philippe + Dr. HC | Ramiro + Martin |
+| Pantalla resultado mujer con bloque Hair Pro + disclaimer Tricometabólico | Philippe | Ramiro + Martin |
+| CTA mujer → Calendario HC Videollamadas con prefill | Philippe | Ramiro + Martin |
+| CTA secundario WhatsApp en mujer y hombre | Philippe | Ramiro + Martin |
+| CTA hombre → `/agendar` Koibox existente con `tipo=asesoria` | Philippe | Ramiro + Martin |
+| Custom fields GHL `Sexo Lead Form` + `Preocupacion caida` | Philippe | Ramiro |
+| URL Meta thank-you con macros `{{form.sexo}}` etc. | Miguel | Miguel |
+| Mapping Meta form → GHL contact via integración nativa | Miguel | Miguel + Ramiro |
+| Tracking PostHog: `diagnostic_quiz_started/completed/cta_clicked` | Philippe | Martin |
+| UTM propagation Meta → quiz → Firestore | Philippe | Ramiro + Martin |
+| Deploy a producción (`diagnostico.hospitalcapilar.com/quiz-hospitalcapilar/`) | Philippe | Ramiro + Martin |
 
 ### 🟡 IN PROGRESS (esta semana)
 
@@ -371,20 +373,20 @@ Sync existente Koibox → Firestore guarda en `bookings`. Cross-reference contra
 | **Workflow GHL: appointment booked → mover a `Videocall booked`** | **Ramiro** | 🟡 Recomendado |
 | **Workflow GHL: appointment attended → mover a stage adecuada** | **Ramiro** | 🟡 Recomendado |
 | **Test E2E con lead real Meta → quiz → calendar** | Miguel envía + **Martin valida** | 🔴 Sí — antes de campaña |
-| Descomentar Murcia + Pontevedra en `AgendarPage.jsx` cuando clínicas estén operativas | Philippe | 🟢 No bloquea Madrid |
+| Descomentar Murcia + Pontevedra en `AgendarPage.jsx` cuando clínicas estén operativas | **Ramiro + Martin** | 🟢 No bloquea Madrid |
 
 ### 🟢 PENDING (próximo sprint)
 
 | Item | Owner |
 |---|---|
-| Conectar GHL custom field submit del quiz (protocolo CRT/HRT → campo nuevo) | Philippe |
-| Webhook backup Meta → backend (no perder leads que no clican thank-you, ~30-40%) | Philippe |
+| Conectar GHL custom field submit del quiz (protocolo CRT/HRT → campo nuevo) | **Ramiro + Martin** |
+| Webhook backup Meta → backend (no perder leads que no clican thank-you, ~30-40%) | **Ramiro + Martin** |
 | **Dashboard funnel completo en `/quiz-hc`** | **Martin** |
 | **Validación métricas end-to-end (Meta → PostHog → GHL → Stripe → Koibox)** | **Martin** |
-| Eventos PostHog granulares: `diagnostic_quiz_question_answered`, `diagnostic_quiz_landing_viewed` | Philippe |
-| Webhook GHL appointment → PostHog `ghl_appointment_booked` | Philippe + Ramiro |
-| Webhook Stripe → PostHog `stripe_payment_completed` con `ghl_contact_id` en metadata | Philippe |
-| Sync Koibox appointment → PostHog `koibox_appointment_created` | Philippe |
+| Eventos PostHog granulares: `diagnostic_quiz_question_answered`, `diagnostic_quiz_landing_viewed` | **Ramiro + Martin** |
+| Webhook GHL appointment → PostHog `ghl_appointment_booked` | **Ramiro** |
+| Webhook Stripe → PostHog `stripe_payment_completed` con `ghl_contact_id` en metadata | **Ramiro + Martin** |
+| Sync Koibox appointment → PostHog `koibox_appointment_created` | **Ramiro + Martin** |
 
 ### 🚦 Checklist pre-campaña (antes de gastar €1.800 en Meta)
 
@@ -400,4 +402,13 @@ Sync existente Koibox → Firestore guarda en `bookings`. Cross-reference contra
   - [ ] Booking en calendar crea evento en Gmail de Noemí
   - [ ] CTA hombre redirige a `/agendar` con prefill correcto
 - [ ] Si todos los checks pasan → green light para campaña real
-- [ ] Si alguno falla → Philippe arregla + Martin re-valida
+- [ ] Si alguno falla → **Ramiro o Martin arregla + Martin re-valida**
+
+### 🧭 Rol de Philippe — Consultoría estratégica
+
+Philippe queda como **consultor estratégico del proyecto**, NO como owner de tareas operativas:
+- Decisiones de funnel y arquitectura
+- Validación de roadmap fase 2 (SEO, creadores, escalado)
+- Sparring con Óscar, María y Miguel a nivel ejecutivo
+- Soporte puntual a Ramiro/Martin si surge bloqueante crítico
+- **No es responsable** de PRs, bugs operativos ni deploys del día a día
