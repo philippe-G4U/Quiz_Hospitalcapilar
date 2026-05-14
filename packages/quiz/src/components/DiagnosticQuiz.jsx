@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, ArrowLeft, CheckCircle2, Loader2, ShieldCheck, Stethoscope, Clock, Sparkles, AlertCircle } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CheckCircle2, Loader2, ShieldCheck, Stethoscope, Clock, Sparkles, AlertCircle, Star } from 'lucide-react';
 
 const WhatsAppIcon = ({ size = 18, className = '' }) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width={size} height={size} className={className} fill="currentColor">
@@ -575,22 +575,65 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
           </div>
 
 
-          <div className="bg-white border-2 border-[#4CA994]/20 rounded-xl p-4 mb-6">
+          {/* Disclaimer Tricometabólico — el resultado es orientativo, lo confirma el médico */}
+          <div className="bg-white border-2 border-[#4CA994]/20 rounded-xl p-4 mb-5">
             <div className="flex gap-3">
               <ShieldCheck size={20} className="text-[#4CA994] shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-bold text-gray-900 mb-1">Importante</p>
+                <p className="text-sm font-bold text-gray-900 mb-1">Esto es una orientación, no un diagnóstico cerrado</p>
                 <p className="text-sm text-gray-600 leading-relaxed">
-                  Esta es una orientación inicial basada en tus respuestas. Para confirmarlo, nuestro equipo médico realiza un <strong>Examen Analítico Tricometabólico</strong> en la primera asesoría.
+                  Para confirmar tu protocolo, un especialista revisa tu caso y realiza el <strong>Examen Analítico Tricometabólico</strong>. Por eso el siguiente paso es hablar con él.
                 </p>
               </div>
             </div>
           </div>
 
+          {/* Qué pasa en la videollamada — un especialista explica TU caso */}
+          <div className="bg-white rounded-2xl border border-gray-100 p-5 mb-5 shadow-sm">
+            <h3 className="text-lg font-extrabold text-gray-900 mb-1 leading-tight">
+              El siguiente paso: que un especialista te explique tu caso
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">En una videollamada gratuita de 1 hora:</p>
+            <div className="space-y-3 mb-5">
+              {[
+                'Un especialista revisa tu pre-diagnóstico y tu situación concreta',
+                `Te explica si el ${content.name} es lo adecuado para ti y por qué`,
+                'Resuelves todas tus dudas — gratis y sin compromiso',
+              ].map((t, i) => (
+                <div key={i} className="flex gap-3">
+                  <CheckCircle2 size={20} className="text-[#4CA994] shrink-0 mt-0.5" />
+                  <p className="text-sm text-gray-700 leading-relaxed">{t}</p>
+                </div>
+              ))}
+            </div>
+            {/* Una sola prueba social — video de Yolanda */}
+            <div className="bg-gray-50 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="font-bold text-sm text-gray-900">Yolanda</span>
+                <span className="text-gray-400 text-xs">Paciente Hospital Capilar</span>
+                <div className="flex gap-0.5 ml-auto">
+                  {Array.from({ length: 5 }).map((_, j) => (
+                    <Star key={j} size={13} className="text-yellow-400 fill-yellow-400" />
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-lg overflow-hidden bg-black aspect-[9/16] max-h-[300px] mx-auto max-w-[170px]">
+                <video
+                  src="https://res.cloudinary.com/dsc0jsbkz/video/upload/v1777898178/YOLANDA_TESTIMONIO_rv2tei.mp4"
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* CTA card */}
           <div className="bg-[#2C3E50] rounded-2xl p-6 text-white text-center">
-            <h3 className="text-xl font-extrabold mb-2">¿Lista para el siguiente paso?</h3>
+            <h3 className="text-xl font-extrabold mb-2">Agenda tu videollamada gratuita</h3>
             <p className="text-sm text-gray-300 mb-5">
-              Agenda una videollamada gratuita con nuestro equipo médico. Te explicarán el protocolo y resolverán todas tus dudas.
+              Un especialista te explica exactamente qué le pasa a tu pelo y qué necesitas para recuperarlo.
             </p>
             <a
               href={calendarUrl}
@@ -599,7 +642,7 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
               onClick={() => analytics.trackEvent('diagnostic_quiz_cta_clicked', { sexo: 'mujer', protocol, channel: 'ghl_calendar' })}
               className="inline-flex items-center gap-2 px-7 py-4 rounded-xl bg-[#4CA994] hover:bg-[#3d9583] text-white font-bold text-base shadow-lg transition-all w-full justify-center"
             >
-              Agenda una videollamada con nuestro equipo médico
+              Agenda mi videollamada gratuita
               <ArrowRight size={20} />
             </a>
             <p className="text-xs text-gray-400 mt-3 mb-4">100% gratuita · Sin compromiso · Lunes a domingo</p>
@@ -619,6 +662,22 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
             >
               <WhatsAppIcon size={18} className="text-white" />
               Hablar por WhatsApp con una asesora
+            </a>
+          </div>
+        </div>
+
+        {/* Floating CTA — always visible while scrolling the result */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] z-20">
+          <div className="max-w-lg mx-auto">
+            <a
+              href={calendarUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => analytics.trackEvent('diagnostic_quiz_cta_clicked', { sexo: 'mujer', protocol, channel: 'ghl_calendar', placement: 'floating' })}
+              className="flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-[#4CA994] hover:bg-[#3d9583] text-white font-bold text-base shadow-lg transition-all w-full"
+            >
+              Agenda mi videollamada gratuita
+              <ArrowRight size={20} />
             </a>
           </div>
         </div>
@@ -721,6 +780,20 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
             >
               <WhatsAppIcon size={18} className="text-white" />
               Hablar por WhatsApp con una asesora
+            </a>
+          </div>
+        </div>
+
+        {/* Floating CTA — always visible while scrolling the result */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] z-20">
+          <div className="max-w-lg mx-auto">
+            <a
+              href={agendarUrl}
+              onClick={() => analytics.trackEvent('diagnostic_quiz_cta_clicked', { sexo: 'hombre', channel: 'koibox_agendar', placement: 'floating' })}
+              className="flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-[#4CA994] hover:bg-[#3d9583] text-white font-bold text-base shadow-lg transition-all w-full"
+            >
+              Agenda tu asesoría presencial gratuita
+              <ArrowRight size={20} />
             </a>
           </div>
         </div>
