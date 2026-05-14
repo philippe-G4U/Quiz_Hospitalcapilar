@@ -26,6 +26,21 @@ const CONTACT_UTM_CAMPAIGN_CF = '3fUI7GO9o7oZ7ddMNnFf';
 const CONTACT_UTM_CONTENT_CF  = 'dydSaUSYbb5R7nYOboLq';
 const CONTACT_UTM_TERM_CF     = 'eLdhsOthmyD38al527tG';
 
+// New-flow detection: "Videocall campaign" Meta form leads populate these CFs.
+// Old-flow forms do not. New-flow leads must NOT get the paywall/agendar link —
+// they go to the quiz, which re-collects data and drives the videollamada.
+const SEXO_LEAD_FORM_CF     = 'ySOJCraPl26CR161KFxW';
+const PREOCUPACION_CAIDA_CF = 'hLiD1jVS5UkzJUjLWo8g';
+const QUIZ_URL = 'https://diagnostico.hospitalcapilar.com/quiz-hospitalcapilar/';
+
+function isNewFlowContact(c) {
+  const cfs = c.customFields || [];
+  return cfs.some(f =>
+    (f.id === SEXO_LEAD_FORM_CF || f.id === PREOCUPACION_CAIDA_CF) &&
+    f.value != null && String(f.value).trim() !== ''
+  );
+}
+
 // 30 days lookback so the cron can backfill historical contacts that
 // were created before Meta's leads_retrieval permission was granted.
 // Once everything is enriched (after ~1 cron cycle) this could go back
@@ -115,8 +130,12 @@ async function enrichOne(c, ghlHeaders, metaAttribution) {
   const currentPaywall = cfs.find(f => f.id === CONTACT_LINK_PAYWALL_CF)?.value || '';
   const currentUtmCampaign = cfs.find(f => f.id === CONTACT_UTM_CAMPAIGN_CF)?.value || '';
   const currentUtmContent  = cfs.find(f => f.id === CONTACT_UTM_CONTENT_CF)?.value || '';
-  const link = buildLink(c);
-  const linkPaywall = buildPaywallLink(c);
+
+  // New-flow leads (Videocall campaign) go to the quiz, NOT the paywall.
+  const newFlow = isNewFlowContact(c);
+  const link = newFlow ? QUIZ_URL : buildLink(c);
+  const linkPaywall = newFlow ? QUIZ_URL : buildPaywallLink(c);
+  const doorValue = newFlow ? 'quiz_videocall' : 'meta_form_directo';
 
   // Skip only if links are populated AND (no meta attribution to add OR
   // both utm_campaign AND utm_content already match the expected values).
@@ -154,7 +173,11 @@ async function enrichOne(c, ghlHeaders, metaAttribution) {
     { id: CONTACT_LINK_AGENDAR_CF, field_value: link },
     { id: CONTACT_LINK_PAYWALL_CF, field_value: linkPaywall },
   ];
-  if (!currentDoor) {
+  // New-flow leads always get door=quiz_videocall (overwrite). Old-flow leads
+  // only get door set if empty (preserve quiz_largo/quiz_corto/form origins).
+  if (newFlow) {
+    customFields.push({ id: CONTACT_DOOR_CF, field_value: doorValue });
+  } else if (!currentDoor) {
     customFields.push({ id: CONTACT_DOOR_CF, field_value: 'meta_form_directo' });
   }
   if (metaAttribution) {

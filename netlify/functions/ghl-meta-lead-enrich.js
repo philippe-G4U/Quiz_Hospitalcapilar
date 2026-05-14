@@ -13,6 +13,14 @@ const GHL_BASE = 'https://services.leadconnectorhq.com';
 const CONTACT_LINK_AGENDAR_CF = 'UdbclFWU2YGw0YYup4vm';
 const CONTACT_LINK_PAYWALL_CF = 'uRxexlYy8HItx45Z7sih';
 const OPP_LINK_AGENDADOS_CF   = 'eHCAvPZKNph7h15z1gGt';
+const CONTACT_DOOR_CF         = '2JYlfGk60lHbuyh9vcdV';
+
+// New-flow detection: leads from the "Videocall campaign" Meta form populate
+// these custom fields. The old flow forms do not. If either is present, the
+// lead belongs to the quiz/videollamada flow → link to the quiz, NOT the paywall.
+const SEXO_LEAD_FORM_CF       = 'ySOJCraPl26CR161KFxW';
+const PREOCUPACION_CAIDA_CF   = 'hLiD1jVS5UkzJUjLWo8g';
+const QUIZ_URL = 'https://diagnostico.hospitalcapilar.com/quiz-hospitalcapilar/';
 
 exports.handler = async (event) => {
   const responseHeaders = {
@@ -44,21 +52,49 @@ exports.handler = async (event) => {
 
   console.log('[meta-lead-enrich] received', { contactId, email, phone });
 
-  // 1. Build personalized links (agendar + paywall) with the contact's data prefilled.
-  const fullName = [firstName, lastName].filter(Boolean).join(' ');
-  const link = `https://diagnostico.hospitalcapilar.com/agendar?contactId=${contactId}`
-    + `&nombre=${encodeURIComponent(fullName)}`
-    + `&email=${encodeURIComponent(email || '')}`
-    + `&phone=${encodeURIComponent(phone || '')}`
-    + `&tipo=diagnostico`;
-  const linkPaywall = `https://diagnostico.hospitalcapilar.com/p/?ecp=protocolo-mujer&contactId=${contactId}`
-    + `&nombre=${encodeURIComponent(fullName)}`
-    + `&email=${encodeURIComponent(email || '')}`
-    + `&telefono=${encodeURIComponent(phone || '')}`;
+  // 0. Fetch the contact to detect which flow it belongs to.
+  // New flow (Videocall campaign) leads have `Sexo Lead Form` or `Preocupacion
+  // caida` populated by the Meta→GHL field mapping. Old flow leads do not.
+  let isNewFlow = false;
+  try {
+    const cr = await fetch(`${GHL_BASE}/contacts/${contactId}`, { headers: ghlHeaders });
+    const cd = await cr.json();
+    const cfs = cd?.contact?.customFields || [];
+    isNewFlow = cfs.some(f =>
+      (f.id === SEXO_LEAD_FORM_CF || f.id === PREOCUPACION_CAIDA_CF) &&
+      f.value != null && String(f.value).trim() !== ''
+    );
+  } catch (e) {
+    console.error('[meta-lead-enrich] contact fetch failed, defaulting to old flow', e);
+  }
+  console.log('[meta-lead-enrich] flow detected:', isNewFlow ? 'NEW (videocall/quiz)' : 'OLD (paywall/agendar)');
 
-  // 2. PUT contact link_agendar.
-  // The bono gate in AgendarPage / koibox-proxy now triggers on tipo=diagnostico
-  // alone (no sexo/gender check), so the link itself enforces the paywall.
+  // 1. Build personalized links depending on the flow.
+  const fullName = [firstName, lastName].filter(Boolean).join(' ');
+  let link, linkPaywall, doorValue;
+
+  if (isNewFlow) {
+    // New flow: both links point to the quiz. The quiz re-collects contact data
+    // and matches back to this GHL contact by email/phone, then drives the
+    // videollamada booking. No paywall in this flow.
+    link = QUIZ_URL;
+    linkPaywall = QUIZ_URL;
+    doorValue = 'quiz_videocall';
+  } else {
+    // Old flow: agendar + paywall links with contact data prefilled.
+    link = `https://diagnostico.hospitalcapilar.com/agendar?contactId=${contactId}`
+      + `&nombre=${encodeURIComponent(fullName)}`
+      + `&email=${encodeURIComponent(email || '')}`
+      + `&phone=${encodeURIComponent(phone || '')}`
+      + `&tipo=diagnostico`;
+    linkPaywall = `https://diagnostico.hospitalcapilar.com/p/?ecp=protocolo-mujer&contactId=${contactId}`
+      + `&nombre=${encodeURIComponent(fullName)}`
+      + `&email=${encodeURIComponent(email || '')}`
+      + `&telefono=${encodeURIComponent(phone || '')}`;
+    doorValue = 'meta_form_directo';
+  }
+
+  // 2. PUT contact link_agendar + link_paywall + door.
   let contactStatus, contactBody;
   try {
     const r = await fetch(`${GHL_BASE}/contacts/${contactId}`, {
@@ -68,6 +104,7 @@ exports.handler = async (event) => {
         customFields: [
           { id: CONTACT_LINK_AGENDAR_CF, field_value: link },
           { id: CONTACT_LINK_PAYWALL_CF, field_value: linkPaywall },
+          { id: CONTACT_DOOR_CF, field_value: doorValue },
         ],
       }),
     });

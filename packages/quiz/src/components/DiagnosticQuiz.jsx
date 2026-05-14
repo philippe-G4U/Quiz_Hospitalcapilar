@@ -189,12 +189,20 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
   const [prefill, setPrefill] = useState({});
 
   // Phases
-  const [phase, setPhase] = useState('landing'); // landing | sex-select | quiz | analyzing | results
+  const [phase, setPhase] = useState('landing'); // landing | sex-select | quiz | contact-form | analyzing | results
   const [sexo, setSexo] = useState(null); // 'mujer' | 'hombre'
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
+
+  // Contact data — re-collected at the end of the quiz because Meta does NOT
+  // pass form data to the redirect URL. We match this back to the GHL contact
+  // by email/phone in quiz-ghl-match.
+  const [pendingAnswers, setPendingAnswers] = useState(null);
+  const [contactForm, setContactForm] = useState({ nombre: '', email: '', telefono: '' });
+  const [contactId, setContactId] = useState(null);
+  const [contactError, setContactError] = useState('');
 
   // Read URL params on mount
   // Note: we always show the landing first, even for Meta leads. This lets us
@@ -258,7 +266,17 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
       if (step < totalSteps - 1) {
         setStep(s => s + 1);
       } else {
-        finalize({ ...answers, [qid]: value });
+        // Last question answered → collect contact data before showing result.
+        setPendingAnswers({ ...answers, [qid]: value });
+        // Prefill from URL params if present (organic / future flows).
+        setContactForm({
+          nombre: prefill.nombre || '',
+          email: prefill.email || '',
+          telefono: prefill.telefono || '',
+        });
+        analytics.trackEvent('diagnostic_quiz_questions_done', { nicho, sexo });
+        window.scrollTo(0, 0);
+        setPhase('contact-form');
       }
     }, 300);
   };
@@ -268,8 +286,23 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
     else setPhase('landing');
   };
 
-  const finalize = async (finalAnswers) => {
+  const handleContactSubmit = () => {
+    const { nombre, email, telefono } = contactForm;
+    if (!nombre.trim() || !email.trim() || !telefono.trim()) {
+      setContactError('Por favor completa todos los campos.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setContactError('El email no parece válido.');
+      return;
+    }
+    setContactError('');
+    finalize(pendingAnswers, contactForm);
+  };
+
+  const finalize = async (finalAnswers, contactData) => {
     setSubmitting(true);
+    window.scrollTo(0, 0);
     setPhase('analyzing');
 
     let resultData;
@@ -278,20 +311,50 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
     } else {
       resultData = { recommendation: 'presencial' };
     }
-
     setResult(resultData);
 
-    // Save to Firestore for testing/analytics (GHL submission TBD when mapping confirmed)
+    const protocolo = sexo === 'mujer' ? resultData.protocol : 'presencial';
+
+    // Match/create the GHL contact by email/phone. Meta created the contact at
+    // form-submit time but didn't pass its data to us — so we re-match here.
+    let ghlContactId = null;
+    try {
+      const res = await safeFetch('/.netlify/functions/quiz-ghl-match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: contactData.nombre,
+          email: contactData.email,
+          telefono: contactData.telefono,
+          sexo,
+          protocolo,
+          quizAnswers: finalAnswers,
+          utm_source: utmParams.utm_source || '',
+          utm_medium: utmParams.utm_medium || '',
+          utm_campaign: utmParams.utm_campaign || '',
+          utm_content: utmParams.utm_content || '',
+          utm_term: utmParams.utm_term || '',
+        }),
+      }, { timeoutMs: 15000, retries: 1, label: 'quiz-ghl-match' });
+      const data = await res.json();
+      ghlContactId = data.contactId || null;
+      analytics.trackEvent('diagnostic_quiz_ghl_matched', { matched: !!data.matched, hasContactId: !!ghlContactId });
+    } catch (err) {
+      console.error('GHL match error:', err);
+    }
+    setContactId(ghlContactId);
+
+    // Save to Firestore for analytics.
     try {
       await addDoc(collection(db, 'quiz_leads'), {
-        nombre: prefill.nombre || '',
-        email: prefill.email || '',
-        telefono: prefill.telefono || '',
+        nombre: contactData.nombre,
+        email: contactData.email,
+        telefono: contactData.telefono,
         ubicacion: prefill.ciudad || '',
         sexo,
         nicho,
-        ghl_lead_id: prefill.leadId || null,
-        door: 'quiz_hospitalcapilar',
+        ghl_contact_id: ghlContactId,
+        door: 'quiz_videocall',
         funnel_type: 'diagnostic_quiz_v2',
         answersRaw: finalAnswers,
         result: resultData,
@@ -302,6 +365,8 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
           utm_source: utmParams.utm_source || null,
           utm_medium: utmParams.utm_medium || null,
           utm_campaign: utmParams.utm_campaign || null,
+          utm_content: utmParams.utm_content || null,
+          utm_term: utmParams.utm_term || null,
           fbclid: utmParams.fbclid || null,
           gclid: utmParams.gclid || null,
           referrer: typeof document !== 'undefined' ? document.referrer || 'direct' : 'direct',
@@ -324,6 +389,79 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
   };
 
   // ==========================================
+  // CONTACT FORM — re-collect contact data before showing the result.
+  // Meta doesn't pass form data to the redirect URL, so we ask again here
+  // and match back to the GHL contact by email/phone.
+  // ==========================================
+  if (phase === 'contact-form') {
+    return (
+      <div className="min-h-screen bg-white font-sans flex flex-col">
+        <TopBar />
+        <div className="max-w-lg w-full mx-auto px-6 pt-8 pb-12 flex-1">
+          <div className="flex items-center justify-center mb-6">
+            <img src="/logo-hc.png" alt="Hospital Capilar" className="h-6" />
+          </div>
+
+          <div className="mb-6">
+            <span className="text-xs font-bold tracking-wider text-[#4CA994] uppercase mb-1.5 block">Último paso</span>
+            <h2 className="text-2xl font-extrabold text-gray-900 mb-2 leading-tight">¿A dónde te enviamos tu pre-diagnóstico?</h2>
+            <p className="text-gray-500 text-sm">Déjanos tus datos para enviarte tu resultado y que una asesora pueda contactarte para tu videollamada gratuita.</p>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Nombre completo <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                value={contactForm.nombre}
+                onChange={e => setContactForm(f => ({ ...f, nombre: e.target.value }))}
+                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-[#4CA994] outline-none text-sm"
+                placeholder="Ej: María García"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Email <span className="text-red-500">*</span></label>
+              <input
+                type="email"
+                value={contactForm.email}
+                onChange={e => setContactForm(f => ({ ...f, email: e.target.value }))}
+                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-[#4CA994] outline-none text-sm"
+                placeholder="correo@ejemplo.com"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Teléfono <span className="text-red-500">*</span></label>
+              <input
+                type="tel"
+                value={contactForm.telefono}
+                onChange={e => setContactForm(f => ({ ...f, telefono: e.target.value }))}
+                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-[#4CA994] outline-none text-sm"
+                placeholder="612 345 678"
+              />
+            </div>
+
+            {contactError && (
+              <p className="text-sm text-red-500 font-medium">{contactError}</p>
+            )}
+
+            <button
+              onClick={handleContactSubmit}
+              disabled={submitting}
+              className="w-full py-3.5 rounded-xl text-white font-bold text-base shadow-lg mt-4 flex items-center justify-center gap-2 disabled:opacity-50 transition-all bg-[#4CA994] hover:-translate-y-0.5"
+            >
+              {submitting ? <Loader2 size={20} className="animate-spin" /> : <>Ver mi pre-diagnóstico <ArrowRight size={18} /></>}
+            </button>
+
+            <p className="text-xs text-gray-400 text-center mt-2 flex items-center justify-center gap-1">
+              <ShieldCheck size={13} /> 100% confidencial · Sin compromiso
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
   // ANALYZING SCREEN
   // ==========================================
   if (phase === 'analyzing') {
@@ -344,13 +482,15 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
   if (phase === 'results' && sexo === 'mujer' && result) {
     const protocol = result.protocol;
     const content = PROTOCOL_CONTENT[protocol];
-    const fullName = (prefill.nombre || '').trim();
+    // Contact data comes from the contact-form step the user just filled.
+    const fullName = (contactForm.nombre || '').trim();
     const firstName = fullName.split(' ')[0];
     const lastName = fullName.split(' ').slice(1).join(' ');
     // GHL Calendar widget — "Calendario HC Videollamadas" (kZbXjtt6kmjj1phXdoqP).
-    // Include both snake_case and camelCase prefill params because the GHL widget
-    // version is not deterministic. Adding both maximizes the chance of prefill working.
+    // Pass contactId so the booking links to the matched GHL contact, plus
+    // prefill params (both snake_case and camelCase — widget version varies).
     const calendarParams = new URLSearchParams();
+    if (contactId) calendarParams.set('contact_id', contactId);
     if (firstName) {
       calendarParams.set('first_name', firstName);
       calendarParams.set('firstName', firstName);
@@ -360,8 +500,8 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
       calendarParams.set('lastName', lastName);
     }
     if (fullName) calendarParams.set('name', fullName);
-    if (prefill.email) calendarParams.set('email', prefill.email);
-    if (prefill.telefono) calendarParams.set('phone', prefill.telefono);
+    if (contactForm.email) calendarParams.set('email', contactForm.email);
+    if (contactForm.telefono) calendarParams.set('phone', contactForm.telefono);
     const calendarUrl = `https://api.leadconnectorhq.com/widget/booking/kZbXjtt6kmjj1phXdoqP${calendarParams.toString() ? '?' + calendarParams.toString() : ''}`;
 
     // Secondary CTA — WhatsApp directo (para quien prefiere no agendar online)
@@ -490,15 +630,15 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
   // RESULTS — HOMBRE (presencial)
   // ==========================================
   if (phase === 'results' && sexo === 'hombre') {
-    const firstName = (prefill.nombre || '').split(' ')[0];
+    const firstName = (contactForm.nombre || '').split(' ')[0];
     // Redirect to existing /agendar Koibox-backed booking page.
     // tipo=asesoria bypasses the bono gate (which is women-only).
     const agendarParams = new URLSearchParams();
-    if (prefill.nombre) agendarParams.set('nombre', prefill.nombre);
-    if (prefill.email) agendarParams.set('email', prefill.email);
-    if (prefill.telefono) agendarParams.set('phone', prefill.telefono);
+    if (contactForm.nombre) agendarParams.set('nombre', contactForm.nombre);
+    if (contactForm.email) agendarParams.set('email', contactForm.email);
+    if (contactForm.telefono) agendarParams.set('phone', contactForm.telefono);
     if (prefill.ciudad) agendarParams.set('clinica', prefill.ciudad);
-    if (prefill.leadId) agendarParams.set('contactId', prefill.leadId);
+    if (contactId) agendarParams.set('contactId', contactId);
     agendarParams.set('tipo', 'asesoria');
     const agendarUrl = `/agendar?${agendarParams.toString()}`;
 
