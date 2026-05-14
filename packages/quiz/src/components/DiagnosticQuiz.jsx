@@ -11,8 +11,8 @@ import { db } from '@hospital-capilar/shared/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { safeFetch } from '../utils/safeFetch';
 import { NICHOS } from './nichoConfig';
+import HCHeader from './HCHeader';
 import {
-  TopBar,
   StatsSection,
   PainPointsSection,
   SolutionSection,
@@ -396,12 +396,8 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
   if (phase === 'contact-form') {
     return (
       <div className="min-h-screen bg-white font-sans flex flex-col">
-        <TopBar />
+        <HCHeader />
         <div className="max-w-lg w-full mx-auto px-6 pt-8 pb-12 flex-1">
-          <div className="flex items-center justify-center mb-6">
-            <img src="/logo-hc.png" alt="Hospital Capilar" className="h-6" />
-          </div>
-
           <div className="mb-6">
             <span className="text-xs font-bold tracking-wider text-[#4CA994] uppercase mb-1.5 block">Último paso</span>
             <h2 className="text-2xl font-extrabold text-gray-900 mb-2 leading-tight">¿A dónde te enviamos tu pre-diagnóstico?</h2>
@@ -466,11 +462,14 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
   // ==========================================
   if (phase === 'analyzing') {
     return (
-      <div className="min-h-screen bg-white font-sans flex items-center justify-center">
-        <div className="text-center px-6">
-          <Loader2 size={48} className="text-[#4CA994] animate-spin mx-auto mb-6" />
-          <h2 className="text-2xl font-extrabold text-gray-900 mb-2">Preparando tu pre-diagnóstico...</h2>
-          <p className="text-gray-500">Estamos analizando tus respuestas.</p>
+      <div className="min-h-screen bg-white font-sans flex flex-col">
+        <HCHeader />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center px-6">
+            <Loader2 size={48} className="text-[#4CA994] animate-spin mx-auto mb-6" />
+            <h2 className="text-2xl font-extrabold text-gray-900 mb-2">Preparando tu pre-diagnóstico...</h2>
+            <p className="text-gray-500">Estamos analizando tus respuestas.</p>
+          </div>
         </div>
       </div>
     );
@@ -513,13 +512,13 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
 
     return (
       <div className="min-h-screen bg-[#F7F8FA] font-sans">
-        <div className="bg-[#4CA994] text-white text-center py-3 px-4 text-sm font-semibold sticky top-0 z-10">
+        <HCHeader />
+        <div className="bg-[#4CA994] text-white text-center py-3 px-4 text-sm font-semibold">
           Tu pre-diagnóstico personalizado está listo
         </div>
 
         <div className="max-w-lg mx-auto px-4 py-6 pb-32">
           <div className="text-center mb-6">
-            <img src="/logo-hc.png" alt="Hospital Capilar" className="h-7 mx-auto mb-4" />
             <h2 className="text-2xl md:text-3xl font-extrabold text-gray-900 mb-2">
               {firstName ? `${firstName}, aquí tienes tu resultado` : 'Aquí tienes tu resultado'}
             </h2>
@@ -710,13 +709,13 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
 
     return (
       <div className="min-h-screen bg-[#F7F8FA] font-sans">
-        <div className="bg-[#4CA994] text-white text-center py-3 px-4 text-sm font-semibold sticky top-0 z-10">
+        <HCHeader />
+        <div className="bg-[#4CA994] text-white text-center py-3 px-4 text-sm font-semibold">
           Tu pre-diagnóstico personalizado está listo
         </div>
 
         <div className="max-w-lg mx-auto px-4 py-6 pb-32">
           <div className="text-center mb-6">
-            <img src="/logo-hc.png" alt="Hospital Capilar" className="h-7 mx-auto mb-4" />
             <h2 className="text-2xl md:text-3xl font-extrabold text-gray-900 mb-2">
               {firstName ? `${firstName}, este es tu siguiente paso` : 'Este es tu siguiente paso'}
             </h2>
@@ -807,14 +806,12 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
   if (phase === 'sex-select') {
     return (
       <div className="min-h-screen bg-white font-sans flex flex-col">
-        <TopBar />
-        <div className="max-w-lg w-full mx-auto px-6 pt-10 pb-12 flex-1">
-          <div className="flex items-center justify-between mb-8">
-            <button onClick={() => setPhase('landing')} className="text-gray-400 hover:text-gray-600 p-1">
+        <HCHeader />
+        <div className="max-w-lg w-full mx-auto px-6 pt-8 pb-12 flex-1">
+          <div className="mb-6">
+            <button onClick={() => setPhase('landing')} className="text-gray-400 hover:text-gray-600 p-1 -ml-1">
               <ArrowLeft size={20} />
             </button>
-            <img src="/logo-hc.png" alt="Hospital Capilar" className="h-6" />
-            <div className="w-8" />
           </div>
 
           <div className="mb-8">
@@ -850,7 +847,7 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
     const currentQ = questions[step];
     return (
       <div className="min-h-screen bg-white font-sans flex flex-col">
-        <TopBar />
+        <HCHeader />
         <div className="h-1 bg-gray-100 w-full">
           <div className="h-full bg-[#4CA994] transition-all duration-300" style={{ width: `${progress}%` }} />
         </div>
@@ -860,7 +857,7 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
             <button onClick={handleBack} className="text-gray-400 hover:text-gray-600 p-1">
               <ArrowLeft size={20} />
             </button>
-            <img src="/logo-hc.png" alt="Hospital Capilar" className="h-6" />
+            <div className="w-8" />
             <div className="w-8" />
           </div>
 
@@ -910,14 +907,11 @@ const DiagnosticQuiz = ({ nicho = 'quiz-hospitalcapilar' }) => {
   // ==========================================
   return (
     <div className="min-h-screen bg-white font-sans text-gray-800">
-      <TopBar />
+      <HCHeader />
 
       {/* Hero */}
       <div className="relative bg-[#2C3E50] text-white overflow-hidden">
         <div className="max-w-6xl mx-auto px-6 py-16 md:py-24">
-          <div className="flex items-center gap-3 mb-6">
-            <img src="/logo-hc-white.png" alt="Hospital Capilar" className="h-10" />
-          </div>
           <p className="text-[#4CA994] text-sm font-bold tracking-widest uppercase mb-4">{config.badge}</p>
           <h1 className="text-3xl md:text-5xl font-extrabold leading-tight mb-4 max-w-3xl">{config.headline}</h1>
           <p className="text-lg text-gray-300 max-w-2xl mb-10">{config.subheadline}</p>
