@@ -129,6 +129,17 @@ exports.handler = async (event) => {
         return { statusCode: 502, headers, body: JSON.stringify({ error: 'GHL update failed', detail: t }) };
       }
       console.log('[quiz-ghl-match] updated existing contact', contactId);
+
+      // Add quiz_videocall tag — existing Meta-form contacts won't have it yet.
+      try {
+        await fetch(`${GHL_BASE}/contacts/${contactId}/tags`, {
+          method: 'POST',
+          headers: ghlHeaders,
+          body: JSON.stringify({ tags: ['quiz_videocall'] }),
+        });
+      } catch (e) {
+        console.error('[quiz-ghl-match] tag add failed (non-fatal)', e);
+      }
     } else {
       const cr = await fetch(`${GHL_BASE}/contacts/`, {
         method: 'POST',
